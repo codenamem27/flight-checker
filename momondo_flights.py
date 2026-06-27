@@ -162,7 +162,8 @@ def _parse_from_html(html: str) -> list[dict]:
 
     soup = BeautifulSoup(html, "html.parser")
     deals = []
-    cards = soup.find_all("div", class_=re.compile(r"resultWrapper|result-item", re.I))
+    # Match the stable semantic suffix; the 4-char prefix (e.g. "Fxw9-") is obfuscated and changes per deploy
+    cards = soup.find_all("div", class_=re.compile(r"-result-item-container", re.I))
 
     for card in cards[:5]:
         text = card.get_text(" ", strip=True)
