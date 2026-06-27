@@ -180,9 +180,13 @@ def _parse_from_html(html: str) -> list[dict]:
     # Match stable semantic suffix; the 4-char prefix (e.g. "Fxw9-") is obfuscated and rotates per deploy
     cards = soup.find_all("div", class_=re.compile(r"-result-item-container", re.I))
 
+    # Stable suffix for price container; 4-char prefix (e.g. "e2GB-") rotates per deploy
+    price_container_re = re.compile(r"price-text-container$")
+
     for card in cards[:5]:
         text = card.get_text(" ", strip=True)
-        price_m    = re.search(r"(A\$|AU\$)\s?[\d,]+", text)
+        price_el   = card.find(class_=price_container_re)
+        price_m    = re.search(r"\$[\d,]+", price_el.get_text() if price_el else text)
         time_m     = re.search(r"(\d{1,2}:\d{2})\s*[→–-]\s*(\d{1,2}:\d{2})", text)
         duration_m = re.search(r"(\d+h\s*\d*m?)", text)
 
