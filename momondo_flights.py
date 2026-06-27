@@ -103,7 +103,9 @@ def _parse_from_markdown(md: str) -> list[dict]:
     LEG_SPLIT   = re.compile(r"^\s{1,4}\d+\.", re.MULTILINE)
     blocks      = SEPARATOR.split(md)
 
-    price_re   = re.compile(r"\[(\$[\d,]+)\]\((https://[^)]+)\)")
+    # Group 1+2: standard linked price [$X,XXX](url)
+    # Group 3:   Mix & Match plain-text price  $X,XXX Mix & Match
+    price_re   = re.compile(r"\[(\$[\d,]+)\]\((https://[^)]+)\)|(\$[\d,]+)\s+Mix\s*&\s*Match")
     time_re    = re.compile(r"(\d{1,2}:\d{2})\s*[–\-]\s*(\d{1,2}:\d{2}(\+\d)?)")
     airline_re = re.compile(r"!\[([^\]]+)\]\(https://content\.r9cdn")
     seen_prices: set[str] = set()
@@ -114,7 +116,10 @@ def _parse_from_markdown(md: str) -> list[dict]:
         price_m = price_re.search(block)
         if not price_m:
             continue
-        price_val, booking_url = price_m.group(1), price_m.group(2)
+        if price_m.group(1):
+            price_val, booking_url = price_m.group(1), price_m.group(2)
+        else:
+            price_val, booking_url = price_m.group(3), ""
         if price_val in seen_prices:
             continue
         seen_prices.add(price_val)
