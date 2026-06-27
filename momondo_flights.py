@@ -33,6 +33,15 @@ from pathlib import Path
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
+# Load .env if present (no external dependency)
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    for _line in _env_path.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _, _v = _line.partition("=")
+            os.environ.setdefault(_k.strip(), _v.strip())
+
 
 def parse_input_file(path: str) -> list[str]:
     urls = []
@@ -226,7 +235,7 @@ _CSS = """
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #f0f4f8; color: #1a202c; padding: 2rem;
+      background: #f0f4f8; color: #1a202c; padding: 1rem;
     }
     .card {
       background: #fff; border-radius: 12px;
@@ -235,49 +244,69 @@ _CSS = """
     }
     header {
       background: linear-gradient(135deg, #005b99 0%, #0080cc 100%);
-      color: #fff; padding: 1.5rem 2rem;
+      color: #fff; padding: 1.2rem 1.5rem;
     }
-    header h1 { font-size: 1.4rem; font-weight: 700; }
+    header h1 { font-size: 1.3rem; font-weight: 700; }
     header p  { font-size: .85rem; opacity: .8; margin-top: .3rem; }
     header p.generated { font-size: .75rem; opacity: .6; margin-top: .5rem; }
     section { border-top: 3px solid #e2e8f0; }
     .route-header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: .9rem 1.5rem; background: #edf2f7;
+      flex-wrap: wrap; gap: .4rem;
+      padding: .8rem 1rem; background: #edf2f7;
     }
-    .route-title { font-weight: 700; font-size: .95rem; color: #2d3748; }
-    .route-link  { font-size: .78rem; color: #005b99; text-decoration: none; }
+    .route-title { font-weight: 700; font-size: .9rem; color: #2d3748; }
+    .route-link  { font-size: .78rem; color: #005b99; text-decoration: none; white-space: nowrap; }
     .route-link:hover { text-decoration: underline; }
     table { width: 100%; border-collapse: collapse; }
     th {
-      background: #f7fafc; text-transform: uppercase; font-size: .7rem;
-      letter-spacing: .06em; color: #718096; padding: .75rem 1rem;
+      background: #f7fafc; text-transform: uppercase; font-size: .65rem;
+      letter-spacing: .06em; color: #718096; padding: .6rem .75rem;
       text-align: left; border-bottom: 1px solid #e2e8f0;
     }
     td {
-      padding: .85rem 1rem; border-bottom: 1px solid #edf2f7;
-      font-size: .9rem; vertical-align: middle;
+      padding: .75rem .75rem; border-bottom: 1px solid #edf2f7;
+      font-size: .85rem; vertical-align: middle;
     }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: #f7fafc; }
-    td.rank    { color: #a0aec0; font-size: .8rem; width: 2.5rem; }
+    td.rank    { color: #a0aec0; font-size: .8rem; width: 2rem; }
     td.airline { vertical-align: middle; }
-    td.leg-label { font-size: .72rem; color: #718096; white-space: nowrap; }
-    tr.leg2 td { border-bottom: 2px solid #e2e8f0; padding-top: .4rem; padding-bottom: .85rem; }
-    tr:not(.leg2) td { border-bottom: none; padding-bottom: .4rem; }
-    td.price a { font-weight: 700; font-size: 1.05rem; color: #005b99; text-decoration: none; }
+    td.leg-label { font-size: .7rem; color: #718096; white-space: nowrap; }
+    tr.leg2 td { border-bottom: 2px solid #e2e8f0; padding-top: .35rem; padding-bottom: .75rem; }
+    tr:not(.leg2) td { border-bottom: none; padding-bottom: .35rem; }
+    td.price a { font-weight: 700; font-size: 1rem; color: #005b99; text-decoration: none; }
     td.price a:hover { text-decoration: underline; }
     td.time  { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .arrow   { color: #a0aec0; }
     .badge {
-      display: inline-block; padding: .2rem .6rem;
-      border-radius: 999px; font-size: .75rem; font-weight: 600;
+      display: inline-block; padding: .15rem .5rem;
+      border-radius: 999px; font-size: .72rem; font-weight: 600;
     }
     .badge-nonstop { background: #c6f6d5; color: #276749; }
     .badge-stop    { background: #bee3f8; color: #2a69ac; }
     .meta {
-      padding: .75rem 1.5rem; font-size: .75rem; color: #a0aec0;
+      padding: .75rem 1rem; font-size: .75rem; color: #a0aec0;
       background: #f7fafc; border-top: 1px solid #e2e8f0;
+    }
+
+    /* Mobile: collapse table into stacked deal cards */
+    @media (max-width: 600px) {
+      body { padding: 0; }
+      .card { border-radius: 0; box-shadow: none; }
+      table, thead, tbody, tr, th, td { display: block; width: 100%; }
+      thead { display: none; }
+      tr:not(.leg2) { padding: .75rem 1rem .2rem; border-top: 1px solid #e2e8f0; }
+      tr.leg2       { padding: .2rem 1rem .75rem; border-bottom: 2px solid #e2e8f0; }
+      td { padding: .1rem 0; border: none; font-size: .88rem; }
+      td.rank   { display: none; }
+      td.price  { font-size: 1.1rem; font-weight: 700; float: right; padding-top: 0; }
+      td.price a { font-size: 1.1rem; }
+      td.airline { font-weight: 600; padding-bottom: .3rem; max-width: 65%; }
+      td.leg-label { display: inline; font-size: .72rem; color: #718096; }
+      td.time  { display: inline; margin-left: .3rem; }
+      td[data-col="duration"] { display: inline; margin-left: .5rem; color: #718096; font-size: .8rem; }
+      td[data-col="stops"]   { display: inline; margin-left: .4rem; }
     }
 """
 
@@ -290,8 +319,11 @@ def parse_route(url: str) -> tuple[str, str, str, str] | None:
 
 
 def _badge(stops: str) -> str:
-    cls = "badge-nonstop" if stops == "0" else "badge-stop"
-    return f'<span class="badge {cls}">{stops}</span>'
+    if stops == "0":
+        return '<span style="display:inline-block;background:#c6f6d5;color:#276749;padding:1px 7px;border-radius:999px;font-size:.72em;font-weight:600;">Non-stop</span>'
+    n = int(stops) if stops.isdigit() else 1
+    label = f"{stops} stop{'s' if n != 1 else ''}"
+    return f'<span style="display:inline-block;background:#bee3f8;color:#2a69ac;padding:1px 7px;border-radius:999px;font-size:.72em;font-weight:600;">{label}</span>'
 
 
 def _render_route_section(orig: str, dest: str, dep: str, ret: str, url: str, deals: list[dict]) -> str:
@@ -299,42 +331,37 @@ def _render_route_section(orig: str, dest: str, dep: str, ret: str, url: str, de
     ret_fmt = datetime.strptime(ret, "%Y-%m-%d").strftime("%-d %b %Y")
     label   = f"{orig} → {dest} &nbsp;|&nbsp; {dep_fmt} – {ret_fmt}"
 
-    rows = ""
+    cards = ""
     for d in deals:
-        rows += f"""
-        <tr>
-          <td class="rank" rowspan="2">#{d['rank']}</td>
-          <td class="price" rowspan="2"><a href="{d['booking_link']}" target="_blank">{d['price']}</a></td>
-          <td class="airline" rowspan="2">{d['airline']}</td>
-          <td class="leg-label">✈ Out</td>
-          <td class="time">{d['leg1_dep']} <span class="arrow">→</span> {d['leg1_arr']}</td>
-          <td>{d['leg1_duration']}</td>
-          <td>{_badge(d['leg1_stops'])}</td>
-        </tr>
-        <tr class="leg2">
-          <td class="leg-label">✈ Ret</td>
-          <td class="time">{d['leg2_dep']} <span class="arrow">→</span> {d['leg2_arr']}</td>
-          <td>{d['leg2_duration']}</td>
-          <td>{_badge(d['leg2_stops'])}</td>
-        </tr>"""
+        price_link = (
+            f'<a href="{d["booking_link"]}" target="_blank" '
+            f'style="font-size:1.15rem;font-weight:700;color:#005b99;text-decoration:none;">{d["price"]}</a>'
+        ) if d["booking_link"] else (
+            f'<span style="font-size:1.15rem;font-weight:700;color:#005b99;">{d["price"]}</span>'
+        )
+        cards += f"""
+  <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+      {price_link}
+      <span style="font-size:.75rem;color:#a0aec0;">#{d['rank']}</span>
+    </div>
+    <div style="font-size:.85rem;color:#2d3748;font-weight:600;margin-bottom:7px;">{d['airline']}</div>
+    <div style="font-size:.8rem;color:#4a5568;line-height:1.8;">
+      ✈ Out &nbsp;{d['leg1_dep']} → {d['leg1_arr']} &nbsp;{d['leg1_duration']} &nbsp;{_badge(d['leg1_stops'])}
+    </div>
+    <div style="font-size:.8rem;color:#4a5568;line-height:1.8;">
+      ✈ Ret &nbsp;{d['leg2_dep']} → {d['leg2_arr']} &nbsp;{d['leg2_duration']} &nbsp;{_badge(d['leg2_stops'])}
+    </div>
+  </div>"""
 
     return f"""
-  <section>
-    <div class="route-header">
-      <span class="route-title">{label}</span>
-      <a class="route-link" href="{url}" target="_blank">View on Momondo ↗</a>
+  <div style="border-top:3px solid #e2e8f0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;padding:10px 16px;background:#edf2f7;">
+      <span style="font-weight:700;font-size:.88rem;color:#2d3748;">{label}</span>
+      <a href="{url}" target="_blank" style="font-size:.78rem;color:#005b99;text-decoration:none;white-space:nowrap;">View on Momondo ↗</a>
     </div>
-    <table>
-      <thead>
-        <tr>
-          <th>#</th><th>Price</th><th>Airline(s)</th>
-          <th>Leg</th><th>Times</th><th>Duration</th><th>Stops</th>
-        </tr>
-      </thead>
-      <tbody>{rows}
-      </tbody>
-    </table>
-  </section>"""
+    {cards}
+  </div>"""
 
 
 def build_combined_html(all_results: list[tuple]) -> str:
@@ -351,17 +378,16 @@ def build_combined_html(all_results: list[tuple]) -> str:
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Flight Deals</title>
-  <style>{_CSS}</style>
 </head>
-<body>
-  <div class="card">
-    <header>
-      <h1>Top Flight Deals</h1>
-      <p>{subtitle}</p>
-      <p class="generated">Generated {generated}</p>
-    </header>
+<body style="margin:0;padding:8px;background:#f0f4f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1a202c;">
+  <div style="background:#fff;border-radius:12px;max-width:640px;margin:0 auto;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">
+    <div style="background:linear-gradient(135deg,#005b99 0%,#0080cc 100%);color:#fff;padding:16px 20px;">
+      <div style="font-size:1.2rem;font-weight:700;">Top Flight Deals</div>
+      <div style="font-size:.82rem;opacity:.8;margin-top:4px;">{subtitle}</div>
+      <div style="font-size:.72rem;opacity:.6;margin-top:6px;">Generated {generated}</div>
+    </div>
     {sections}
-    <div class="meta">Generated {generated}</div>
+    <div style="padding:10px 16px;font-size:.75rem;color:#a0aec0;background:#f7fafc;border-top:1px solid #e2e8f0;">Generated {generated}</div>
   </div>
 </body>
 </html>"""
@@ -437,38 +463,43 @@ async def run_search(url: str, index: int, total: int, debug: bool = False) -> t
 async def main():
     parser = argparse.ArgumentParser(description="Scrape Momondo flight deals.")
     parser.add_argument("input_file", help="Text file with one Momondo URL per line")
-    parser.add_argument("--email-to", metavar="ADDRESS", help="Send combined report to this address")
+    parser.add_argument("--email-to", metavar="ADDRESS", default=os.environ.get("EMAIL_TO"), help="Send combined report to this address (or set EMAIL_TO in .env)")
     parser.add_argument("--debug", action="store_true", help="Save raw markdown from first URL to debug_markdown.md")
     args = parser.parse_args()
 
-    urls = parse_input_file(args.input_file)
-    if not urls:
-        print("No valid URLs found in input file.")
-        sys.exit(1)
+    # --- flight searching temporarily disabled ---
+    # urls = parse_input_file(args.input_file)
+    # if not urls:
+    #     print("No valid URLs found in input file.")
+    #     sys.exit(1)
+    #
+    # print(f"Found {len(urls)} URL(s) to run.")
+    #
+    # all_results = []
+    # for i, url in enumerate(urls, 1):
+    #     result = await run_search(url, i, len(urls), debug=args.debug and i == 1)
+    #     if result:
+    #         all_results.append(result)
+    #     if i < len(urls):
+    #         await asyncio.sleep(3)
+    #
+    # if not all_results:
+    #     print("No results to report.")
+    #     return
+    #
+    # html = build_combined_html(all_results)
+    # combined_path = "flight_deals_combined.html"
+    # Path(combined_path).write_text(html, encoding="utf-8")
+    # print(f"\nCombined report saved to {combined_path}")
+    # routes = ", ".join(f"{o}→{d}" for o, d, *_ in all_results)
+    # subject = f"Flight Deals – {routes}"
 
-    print(f"Found {len(urls)} URL(s) to run.")
-
-    all_results = []
-    for i, url in enumerate(urls, 1):
-        result = await run_search(url, i, len(urls), debug=args.debug and i == 1)
-        if result:
-            all_results.append(result)
-        if i < len(urls):
-            await asyncio.sleep(3)
-
-    if not all_results:
-        print("No results to report.")
-        return
-
-    html = build_combined_html(all_results)
     combined_path = "flight_deals_combined.html"
-    Path(combined_path).write_text(html, encoding="utf-8")
-    print(f"\nCombined report saved to {combined_path}")
+    html = Path(combined_path).read_text(encoding="utf-8")
+    print(f"Loaded existing report from {combined_path}")
 
     if args.email_to:
-        routes  = ", ".join(f"{o}→{d}" for o, d, *_ in all_results)
-        subject = f"Flight Deals – {routes}"
-        send_email(html, subject, args.email_to)
+        send_email(html, "Flight Deals", args.email_to)
 
 
 if __name__ == "__main__":

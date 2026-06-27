@@ -1,2 +1,3 @@
 # One Momondo URL per line
-https://www.momondo.com.au/flight-search/SYD-MXP/2026-10-18/2026-10-30?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-KEF/2026-11-18/2026-11-30?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-CHC/2026-10-18/2026-10-30?sort=price_a
