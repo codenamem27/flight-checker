@@ -453,6 +453,8 @@ async def main():
         result = await run_search(url, i, len(urls), debug=args.debug and i == 1)
         if result:
             all_results.append(result)
+        if i < len(urls):
+            await asyncio.sleep(3)
 
     if not all_results:
         print("No results to report.")
