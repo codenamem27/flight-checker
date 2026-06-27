@@ -239,6 +239,7 @@ _CSS = """
     }
     header h1 { font-size: 1.4rem; font-weight: 700; }
     header p  { font-size: .85rem; opacity: .8; margin-top: .3rem; }
+    header p.generated { font-size: .75rem; opacity: .6; margin-top: .5rem; }
     section { border-top: 3px solid #e2e8f0; }
     .route-header {
       display: flex; align-items: center; justify-content: space-between;
@@ -357,6 +358,7 @@ def build_combined_html(all_results: list[tuple]) -> str:
     <header>
       <h1>Top Flight Deals</h1>
       <p>{subtitle}</p>
+      <p class="generated">Generated {generated}</p>
     </header>
     {sections}
     <div class="meta">Generated {generated}</div>
