@@ -52,7 +52,7 @@ def parse_input_file(path: str) -> list[str]:
 # Scraping
 # ---------------------------------------------------------------------------
 
-async def scrape_top_flights(url: str) -> list[dict]:
+async def scrape_top_flights(url: str, debug: bool = False) -> list[dict]:
     browser_cfg = BrowserConfig(
         headless=True,
         user_agent=(
@@ -60,11 +60,12 @@ async def scrape_top_flights(url: str) -> list[dict]:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/125.0.0.0 Safari/537.36"
         ),
+        extra_args=["--disable-blink-features=AutomationControlled"],
     )
     run_cfg = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
         page_timeout=60_000,
-        delay_before_return_html=8.0,
+        delay_before_return_html=30.0,
         simulate_user=True,
         magic=True,
     )
@@ -78,6 +79,12 @@ async def scrape_top_flights(url: str) -> list[dict]:
         return []
 
     print(f"Markdown length: {len(result.markdown or '')}")
+
+    if debug:
+        debug_path = "debug_markdown.md"
+        Path(debug_path).write_text(result.markdown or "", encoding="utf-8")
+        print(f"Raw markdown saved to {debug_path}")
+
     flights = _parse_from_markdown(result.markdown)
     if not flights:
         print("Markdown parse yielded no results, trying HTML fallback…")
@@ -383,7 +390,7 @@ def send_email(html: str, subject: str, to_addr: str) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-async def run_search(url: str, index: int, total: int) -> tuple | None:
+async def run_search(url: str, index: int, total: int, debug: bool = False) -> tuple | None:
     print(f"\n[{index}/{total}] {url}")
     route = parse_route(url)
     if not route:
@@ -391,7 +398,7 @@ async def run_search(url: str, index: int, total: int) -> tuple | None:
         return None
     orig, dest, dep, ret = route
 
-    deals = await scrape_top_flights(url)
+    deals = await scrape_top_flights(url, debug=debug)
     if not deals:
         print(f"No deals found for {orig}-{dest} {dep}/{ret}.")
         return None
@@ -420,6 +427,7 @@ async def main():
     parser = argparse.ArgumentParser(description="Scrape Momondo flight deals.")
     parser.add_argument("input_file", help="Text file with one Momondo URL per line")
     parser.add_argument("--email-to", metavar="ADDRESS", help="Send combined report to this address")
+    parser.add_argument("--debug", action="store_true", help="Save raw markdown from first URL to debug_markdown.md")
     args = parser.parse_args()
 
     urls = parse_input_file(args.input_file)
@@ -431,7 +439,7 @@ async def main():
 
     all_results = []
     for i, url in enumerate(urls, 1):
-        result = await run_search(url, i, len(urls))
+        result = await run_search(url, i, len(urls), debug=args.debug and i == 1)
         if result:
             all_results.append(result)
 
