@@ -20,6 +20,7 @@ jobs:
       - name: Run flight scraper
         env:
           PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+          TOP_N_RESULTS: ${{ vars.TOP_N_RESULTS }}
           SMTP_HOST: ${{ vars.SMTP_HOST }}
           SMTP_PORT: ${{ vars.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

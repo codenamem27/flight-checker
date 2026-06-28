@@ -61,7 +61,7 @@ def parse_input_file(path: str) -> list[str]:
 # Scraping
 # ---------------------------------------------------------------------------
 
-async def scrape_top_flights(url: str, debug: bool = False) -> list[dict]:
+async def scrape_top_flights(url: str, debug: bool = False, top_n: int = 5) -> list[dict]:
     browser_cfg = BrowserConfig(
         headless=True,
         user_agent=(
@@ -94,19 +94,19 @@ async def scrape_top_flights(url: str, debug: bool = False) -> list[dict]:
         Path(debug_path).write_text(result.markdown or "", encoding="utf-8")
         print(f"Raw markdown saved to {debug_path}")
 
-    flights = _parse_from_markdown(result.markdown)
+    flights = _parse_from_markdown(result.markdown, top_n=top_n)
     if not flights:
         print("Markdown parse yielded no results, trying HTML fallback…")
-        flights = _parse_from_html(result.html)
+        flights = _parse_from_html(result.html, top_n=top_n)
 
-    return flights[:5]
+    return flights[:top_n]
 
 
 # ---------------------------------------------------------------------------
 # Parsers
 # ---------------------------------------------------------------------------
 
-def _parse_from_markdown(md: str) -> list[dict]:
+def _parse_from_markdown(md: str, top_n: int = 5) -> list[dict]:
     deals = []
     SEPARATOR   = re.compile(r"Go to (?:next|previous) result")
     LEG_SPLIT   = re.compile(r"^\s{1,4}\d+\.", re.MULTILINE)
@@ -120,7 +120,7 @@ def _parse_from_markdown(md: str) -> list[dict]:
     seen_prices: set[str] = set()
 
     for block in blocks:
-        if len(deals) >= 5:
+        if len(deals) >= top_n:
             break
         price_m = price_re.search(block)
         if not price_m:
@@ -177,7 +177,7 @@ def _parse_from_markdown(md: str) -> list[dict]:
     return deals
 
 
-def _parse_from_html(html: str) -> list[dict]:
+def _parse_from_html(html: str, top_n: int = 5) -> list[dict]:
     try:
         from bs4 import BeautifulSoup
     except ImportError:
@@ -192,7 +192,7 @@ def _parse_from_html(html: str) -> list[dict]:
     # Stable suffix for price container; 4-char prefix (e.g. "e2GB-") rotates per deploy
     price_container_re = re.compile(r"price-text-container$")
 
-    for card in cards[:5]:
+    for card in cards[:top_n]:
         text = card.get_text(" ", strip=True)
         price_el   = card.find(class_=price_container_re)
         price_m    = re.search(r"\$[\d,]+", price_el.get_text() if price_el else text)
@@ -426,7 +426,7 @@ def send_email(html: str, subject: str, to_addr: str) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-async def run_search(url: str, index: int, total: int, debug: bool = False) -> tuple | None:
+async def run_search(url: str, index: int, total: int, debug: bool = False, top_n: int = 5) -> tuple | None:
     print(f"\n[{index}/{total}] {url}")
     route = parse_route(url)
     if not route:
@@ -434,7 +434,7 @@ async def run_search(url: str, index: int, total: int, debug: bool = False) -> t
         return None
     orig, dest, dep, ret = route
 
-    deals = await scrape_top_flights(url, debug=debug)
+    deals = await scrape_top_flights(url, debug=debug, top_n=top_n)
     if not deals:
         print(f"No deals found for {orig}-{dest} {dep}/{ret}.")
         return None
@@ -463,6 +463,7 @@ async def main():
     parser = argparse.ArgumentParser(description="Scrape Momondo flight deals.")
     parser.add_argument("input_file", help="Text file with one Momondo URL per line")
     parser.add_argument("--email-to", metavar="ADDRESS", default=os.environ.get("EMAIL_TO"), help="Send combined report to this address (or set EMAIL_TO in .env)")
+    parser.add_argument("--top-n", type=int, default=int(os.environ.get("TOP_N_RESULTS", 5)), help="Number of top deals to show per route (or set TOP_N_RESULTS env var)")
     parser.add_argument("--debug", action="store_true", help="Save raw markdown from first URL to debug_markdown.md")
     args = parser.parse_args()
 
@@ -475,7 +476,7 @@ async def main():
 
     all_results = []
     for i, url in enumerate(urls, 1):
-        result = await run_search(url, i, len(urls), debug=args.debug and i == 1)
+        result = await run_search(url, i, len(urls), debug=args.debug and i == 1, top_n=args.top_n)
         if result:
             all_results.append(result)
         if i < len(urls):
