@@ -357,7 +357,7 @@ def _render_route_section(orig: str, dest: str, dep: str, ret: str, url: str, de
     return f"""
   <div style="border-top:3px solid #e2e8f0;">
     <div style="padding:10px 16px;background:#edf2f7;">
-      <a href="{url}" target="_blank" style="font-weight:700;font-size:.88rem;color:#2d3748;text-decoration:none;">{label}</a>
+      <a href="{url}" target="_blank" style="font-weight:700;font-size:.88rem;color:#2d3748;text-decoration:underline;">{label}</a>
     </div>
     {cards}
   </div>"""
@@ -466,39 +466,34 @@ async def main():
     parser.add_argument("--debug", action="store_true", help="Save raw markdown from first URL to debug_markdown.md")
     args = parser.parse_args()
 
-    # --- flight searching temporarily disabled ---
-    # urls = parse_input_file(args.input_file)
-    # if not urls:
-    #     print("No valid URLs found in input file.")
-    #     sys.exit(1)
-    #
-    # print(f"Found {len(urls)} URL(s) to run.")
-    #
-    # all_results = []
-    # for i, url in enumerate(urls, 1):
-    #     result = await run_search(url, i, len(urls), debug=args.debug and i == 1)
-    #     if result:
-    #         all_results.append(result)
-    #     if i < len(urls):
-    #         await asyncio.sleep(3)
-    #
-    # if not all_results:
-    #     print("No results to report.")
-    #     return
-    #
-    # html = build_combined_html(all_results)
-    # combined_path = "flight_deals_combined.html"
-    # Path(combined_path).write_text(html, encoding="utf-8")
-    # print(f"\nCombined report saved to {combined_path}")
-    # routes = ", ".join(f"{o}→{d}" for o, d, *_ in all_results)
-    # subject = f"Flight Deals – {routes}"
+    urls = parse_input_file(args.input_file)
+    if not urls:
+        print("No valid URLs found in input file.")
+        sys.exit(1)
 
+    print(f"Found {len(urls)} URL(s) to run.")
+
+    all_results = []
+    for i, url in enumerate(urls, 1):
+        result = await run_search(url, i, len(urls), debug=args.debug and i == 1)
+        if result:
+            all_results.append(result)
+        if i < len(urls):
+            await asyncio.sleep(3)
+
+    if not all_results:
+        print("No results to report.")
+        return
+
+    html = build_combined_html(all_results)
     combined_path = "flight_deals_combined.html"
-    html = Path(combined_path).read_text(encoding="utf-8")
-    print(f"Loaded existing report from {combined_path}")
+    Path(combined_path).write_text(html, encoding="utf-8")
+    print(f"\nCombined report saved to {combined_path}")
+    routes = ", ".join(f"{o}→{d}" for o, d, *_ in all_results)
+    subject = f"Flight Deals – {routes}"
 
     if args.email_to:
-        send_email(html, "Flight Deals", args.email_to)
+        send_email(html, subject, args.email_to)
 
 
 if __name__ == "__main__":
