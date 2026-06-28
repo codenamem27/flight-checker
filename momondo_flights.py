@@ -327,8 +327,8 @@ def _badge(stops: str) -> str:
 
 
 def _render_route_section(orig: str, dest: str, dep: str, ret: str, url: str, deals: list[dict]) -> str:
-    dep_fmt = datetime.strptime(dep, "%Y-%m-%d").strftime("%-d %b %Y")
-    ret_fmt = datetime.strptime(ret, "%Y-%m-%d").strftime("%-d %b %Y")
+    dep_fmt = datetime.strptime(dep, "%Y-%m-%d").strftime("%a %-d/%-m")
+    ret_fmt = datetime.strptime(ret, "%Y-%m-%d").strftime("%a %-d/%-m")
     label   = f"{orig} → {dest} &nbsp;|&nbsp; {dep_fmt} – {ret_fmt}"
 
     cards = ""
@@ -356,9 +356,8 @@ def _render_route_section(orig: str, dest: str, dep: str, ret: str, url: str, de
 
     return f"""
   <div style="border-top:3px solid #e2e8f0;">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;padding:10px 16px;background:#edf2f7;">
-      <span style="font-weight:700;font-size:.88rem;color:#2d3748;">{label}</span>
-      <a href="{url}" target="_blank" style="font-size:.78rem;color:#005b99;text-decoration:none;white-space:nowrap;">View on Momondo ↗</a>
+    <div style="padding:10px 16px;background:#edf2f7;">
+      <a href="{url}" target="_blank" style="font-weight:700;font-size:.88rem;color:#2d3748;text-decoration:none;">{label}</a>
     </div>
     {cards}
   </div>"""
