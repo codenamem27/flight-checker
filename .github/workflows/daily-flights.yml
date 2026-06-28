@@ -1,0 +1,39 @@
+name: Daily Flight Deals
+
+on:
+  schedule:
+    - cron: '30 8 * * *'  # 18:30 AEST (UTC+10); shifts to 19:30 during AEDT (UTC+11, Oct–Apr)
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.60.0-jammy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install crawl4ai beautifulsoup4
+
+      - name: Run flight scraper
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python momondo_flights.py searches.txt
+
+      - name: Upload report artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-deals-${{ github.run_id }}
+          path: |
+            flight_deals_combined.html
+            flight_deals_*.json
+          retention-days: 7
