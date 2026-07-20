@@ -1,3 +1,6 @@
 # One Momondo URL per line
-https://www.momondo.com.au/flight-search/SYD-KEF/2026-11-18/2026-11-30?sort=price_a
-https://www.momondo.com.au/flight-search/SYD-CHC/2026-10-18/2026-10-30?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-09/2027-01-18?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-12/2027-01-20?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-12/2027-01-21?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-15/2027-01-26?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-16/2027-01-26?sort=price_a
