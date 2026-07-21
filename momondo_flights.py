@@ -537,8 +537,8 @@ async def main():
     combined_path = "flight_deals_combined.html"
     Path(combined_path).write_text(html, encoding="utf-8")
     print(f"\nCombined report saved to {combined_path}")
-    routes = ", ".join(f"{o}→{d}" for o, d, *_ in all_results)
-    subject = f"Flight Deals – {routes}"
+    dests = ", ".join(dict.fromkeys(d for _, d, *_ in all_results))
+    subject = f"Flight Deals – {dests}"
 
     if args.email_to:
         send_email(html, subject, args.email_to)
