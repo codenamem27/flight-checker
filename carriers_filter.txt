@@ -1,0 +1,4 @@
+# One carrier name per line — flights operated by these carriers are excluded from results
+Scoot
+Vietnam Airlines
+Cebu Pacific

@@ -7,6 +7,10 @@ Usage:
 
 Input file: one Momondo URL per line (lines starting with # are comments).
 
+Carrier filtering: put one carrier name per line in carriers_filter.txt (lines
+starting with # are comments) to exclude flights operated by those carriers
+from results.
+
 Email environment variables:
     SMTP_HOST  (default: smtp.gmail.com)
     SMTP_PORT  (default: 587)
@@ -57,11 +61,27 @@ def parse_input_file(path: str) -> list[str]:
     return urls
 
 
+def parse_filters_file(path: str) -> set[str]:
+    excluded = set()
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            excluded.add(line.lower())
+    return excluded
+
+
 # ---------------------------------------------------------------------------
 # Scraping
 # ---------------------------------------------------------------------------
 
-async def scrape_top_flights(url: str, debug: bool = False, top_n: int = 5) -> list[dict]:
+async def scrape_top_flights(
+    url: str,
+    debug: bool = False,
+    top_n: int = 5,
+    excluded_carriers: set[str] = frozenset(),
+) -> list[dict]:
     browser_cfg = BrowserConfig(
         headless=True,
         user_agent=(
@@ -94,10 +114,10 @@ async def scrape_top_flights(url: str, debug: bool = False, top_n: int = 5) -> l
         Path(debug_path).write_text(result.markdown or "", encoding="utf-8")
         print(f"Raw markdown saved to {debug_path}")
 
-    flights = _parse_from_markdown(result.markdown, top_n=top_n)
+    flights = _parse_from_markdown(result.markdown, top_n=top_n, excluded_carriers=excluded_carriers)
     if not flights:
         print("Markdown parse yielded no results, trying HTML fallback…")
-        flights = _parse_from_html(result.html, top_n=top_n)
+        flights = _parse_from_html(result.html, top_n=top_n, excluded_carriers=excluded_carriers)
 
     return flights[:top_n]
 
@@ -106,7 +126,7 @@ async def scrape_top_flights(url: str, debug: bool = False, top_n: int = 5) -> l
 # Parsers
 # ---------------------------------------------------------------------------
 
-def _parse_from_markdown(md: str, top_n: int = 5) -> list[dict]:
+def _parse_from_markdown(md: str, top_n: int = 5, excluded_carriers: set[str] = frozenset()) -> list[dict]:
     deals = []
     SEPARATOR   = re.compile(r"Go to (?:next|previous) result")
     LEG_SPLIT   = re.compile(r"^\s{1,4}\d+\.", re.MULTILINE)
@@ -159,6 +179,9 @@ def _parse_from_markdown(md: str, top_n: int = 5) -> list[dict]:
         airlines = airline_re.findall(pre)
         airline  = ", ".join(dict.fromkeys(airlines)) if airlines else "Unknown"
 
+        if excluded_carriers and any(name in airline.lower() for name in excluded_carriers):
+            continue
+
         deals.append({
             "rank":          len(deals) + 1,
             "airline":       airline,
@@ -177,7 +200,7 @@ def _parse_from_markdown(md: str, top_n: int = 5) -> list[dict]:
     return deals
 
 
-def _parse_from_html(html: str, top_n: int = 5) -> list[dict]:
+def _parse_from_html(html: str, top_n: int = 5, excluded_carriers: set[str] = frozenset()) -> list[dict]:
     try:
         from bs4 import BeautifulSoup
     except ImportError:
@@ -192,7 +215,10 @@ def _parse_from_html(html: str, top_n: int = 5) -> list[dict]:
     # Stable suffix for price container; 4-char prefix (e.g. "e2GB-") rotates per deploy
     price_container_re = re.compile(r"price-text-container$")
 
-    for card in cards[:top_n]:
+    for card in cards:
+        if len(deals) >= top_n:
+            break
+
         text = card.get_text(" ", strip=True)
         price_el   = card.find(class_=price_container_re)
         price_m    = re.search(r"\$[\d,]+", price_el.get_text() if price_el else text)
@@ -206,6 +232,9 @@ def _parse_from_html(html: str, top_n: int = 5) -> list[dict]:
                 break
         else:
             airline = "Unknown"
+
+        if excluded_carriers and any(name in airline.lower() for name in excluded_carriers):
+            continue
 
         stops = "Non-stop" if re.search(r"non.?stop|direct", text, re.I) else (
             f"{m.group(1)} stop(s)" if (m := re.search(r"(\d+)\s*stop", text, re.I)) else "N/A"
@@ -426,7 +455,14 @@ def send_email(html: str, subject: str, to_addr: str) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-async def run_search(url: str, index: int, total: int, debug: bool = False, top_n: int = 5) -> tuple | None:
+async def run_search(
+    url: str,
+    index: int,
+    total: int,
+    debug: bool = False,
+    top_n: int = 5,
+    excluded_carriers: set[str] = frozenset(),
+) -> tuple | None:
     print(f"\n[{index}/{total}] {url}")
     route = parse_route(url)
     if not route:
@@ -434,7 +470,7 @@ async def run_search(url: str, index: int, total: int, debug: bool = False, top_
         return None
     orig, dest, dep, ret = route
 
-    deals = await scrape_top_flights(url, debug=debug, top_n=top_n)
+    deals = await scrape_top_flights(url, debug=debug, top_n=top_n, excluded_carriers=excluded_carriers)
     if not deals:
         print(f"No deals found for {orig}-{dest} {dep}/{ret}.")
         return None
@@ -465,6 +501,7 @@ async def main():
     parser.add_argument("--email-to", metavar="ADDRESS", default=os.environ.get("EMAIL_TO"), help="Send combined report to this address (or set EMAIL_TO in .env)")
     parser.add_argument("--top-n", type=int, default=int(os.environ.get("TOP_N_RESULTS", 5)), help="Number of top deals to show per route (or set TOP_N_RESULTS env var)")
     parser.add_argument("--debug", action="store_true", help="Save raw markdown from first URL to debug_markdown.md")
+    parser.add_argument("--filters-file", default="carriers_filter.txt", help="Text file with one carrier name per line to exclude from results (default: carriers_filter.txt, if present)")
     args = parser.parse_args()
 
     urls = parse_input_file(args.input_file)
@@ -474,9 +511,19 @@ async def main():
 
     print(f"Found {len(urls)} URL(s) to run.")
 
+    excluded_carriers: set[str] = set()
+    if Path(args.filters_file).exists():
+        excluded_carriers = parse_filters_file(args.filters_file)
+        print(f"Excluding {len(excluded_carriers)} carrier(s) from {args.filters_file}")
+
     all_results = []
     for i, url in enumerate(urls, 1):
-        result = await run_search(url, i, len(urls), debug=args.debug and i == 1, top_n=args.top_n)
+        result = await run_search(
+            url, i, len(urls),
+            debug=args.debug and i == 1,
+            top_n=args.top_n,
+            excluded_carriers=excluded_carriers,
+        )
         if result:
             all_results.append(result)
         if i < len(urls):
