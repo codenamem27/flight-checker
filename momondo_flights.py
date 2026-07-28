@@ -7,6 +7,14 @@ Usage:
 
 Input file: one Momondo URL per line (lines starting with # are comments).
 
+Optional section headers: a line of the form `## DEST,MAXPRICE` (e.g.
+`## KIX,1300`) starts a section. Every URL below it must be a search for that
+destination (validated against the 3-letter IATA code in the URL) — a
+mismatch raises an "invalid data" error. In the HTML report, deals priced
+above MAXPRICE still appear but show only price and carrier, with leg details
+omitted. A file may contain multiple sections. URLs before any header (or in
+a file with no headers) are unvalidated and unaffected by any price cap.
+
 Carrier filtering: put one carrier name per line in carriers_filter.txt (lines
 starting with # are comments) to exclude flights operated by those carriers
 from results.
@@ -47,18 +55,47 @@ if _env_path.exists():
             os.environ.setdefault(_k.strip(), _v.strip())
 
 
-def parse_input_file(path: str) -> list[str]:
-    urls = []
+class InvalidDataError(Exception):
+    """Raised when searches.txt has a malformed section header or a URL whose
+    destination doesn't match its section header."""
+
+
+HEADER_RE = re.compile(r"^##\s*([A-Za-z]{3})\s*,\s*(\d+(?:\.\d+)?)\s*$")
+
+
+def parse_input_file(path: str) -> list[tuple[str, str | None, float | None, int | None]]:
+    entries: list[tuple[str, str | None, float | None, int | None]] = []
+    current_dest: str | None = None
+    current_max_price: float | None = None
+    current_section: int | None = None
     with open(path) as f:
         for lineno, line in enumerate(f, 1):
             line = line.strip()
-            if not line or line.startswith("#"):
+            if not line:
+                continue
+            if line.startswith("##"):
+                m = HEADER_RE.match(line)
+                if not m:
+                    raise InvalidDataError(f"Line {lineno}: malformed section header: {line!r}")
+                current_dest = m.group(1).upper()
+                current_max_price = float(m.group(2))
+                current_section = (current_section + 1) if current_section is not None else 0
+                continue
+            if line.startswith("#"):
                 continue
             if not line.startswith("http"):
                 print(f"Line {lineno}: doesn't look like a URL, skipping: {line!r}")
                 continue
-            urls.append(line)
-    return urls
+            if current_dest is not None:
+                route = parse_route(line)
+                url_dest = route[1].upper() if route else "?"
+                if route is None or url_dest != current_dest:
+                    raise InvalidDataError(
+                        f"Line {lineno}: URL destination {url_dest!r} doesn't match "
+                        f"section destination {current_dest!r}: {line!r}"
+                    )
+            entries.append((line, current_dest, current_max_price, current_section))
+    return entries
 
 
 def parse_filters_file(path: str) -> set[str]:
@@ -70,6 +107,16 @@ def parse_filters_file(path: str) -> set[str]:
                 continue
             excluded.add(line.lower())
     return excluded
+
+
+def _price_to_float(price: str) -> float | None:
+    if not price:
+        return None
+    cleaned = price.replace("$", "").replace(",", "").strip()
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +402,17 @@ def _badge(stops: str) -> str:
     return f'<span style="display:inline-block;background:#bee3f8;color:#2a69ac;padding:1px 7px;border-radius:999px;font-size:.72em;font-weight:600;">{label}</span>'
 
 
-def _render_route_section(orig: str, dest: str, dep: str, ret: str, url: str, deals: list[dict]) -> str:
+def _render_section_banner(dest: str, max_price: float) -> str:
+    return f"""
+  <div style="padding:10px 16px;background:#234e52;color:#fff;font-weight:700;font-size:.85rem;letter-spacing:.02em;">
+    {dest} &nbsp;·&nbsp; Max ${max_price:,.0f}
+  </div>"""
+
+
+def _render_route_section(
+    orig: str, dest: str, dep: str, ret: str, url: str, deals: list[dict],
+    max_price: float | None = None,
+) -> str:
     dep_fmt = datetime.strptime(dep, "%Y-%m-%d").strftime("%a %-d/%-m")
     ret_fmt = datetime.strptime(ret, "%Y-%m-%d").strftime("%a %-d/%-m")
     label   = f"{orig} → {dest} &nbsp;|&nbsp; {dep_fmt} – {ret_fmt}"
@@ -368,13 +425,20 @@ def _render_route_section(orig: str, dest: str, dep: str, ret: str, url: str, de
         ) if d["booking_link"] else (
             f'<span style="font-size:1.15rem;font-weight:700;color:#005b99;">{d["price"]}</span>'
         )
-        cards += f"""
+        header = f"""
   <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
       {price_link}
       <span style="font-size:.75rem;color:#a0aec0;">#{d['rank']}</span>
     </div>
-    <div style="font-size:.85rem;color:#2d3748;font-weight:600;margin-bottom:7px;">{d['airline']}</div>
+    <div style="font-size:.85rem;color:#2d3748;font-weight:600;margin-bottom:7px;">{d['airline']}</div>"""
+
+        price_val = _price_to_float(d["price"])
+        over_cap = max_price is not None and price_val is not None and price_val > max_price
+        if over_cap:
+            cards += header + "\n  </div>"
+        else:
+            cards += header + f"""
     <div style="font-size:.8rem;color:#4a5568;line-height:1.8;">
       ✈ Out &nbsp;{d['leg1_dep']} → {d['leg1_arr']} &nbsp;{d['leg1_duration']} &nbsp;{_badge(d['leg1_stops'])}
     </div>
@@ -396,10 +460,16 @@ def build_combined_html(all_results: list[tuple]) -> str:
     generated = datetime.now().strftime("%d %b %Y, %H:%M")
     n = len(all_results)
     subtitle = f"{n} route{'s' if n != 1 else ''} · Sorted by price · Scraped from Momondo"
-    sections = "".join(
-        _render_route_section(orig, dest, dep, ret, url, deals)
-        for orig, dest, dep, ret, url, deals in all_results
-    )
+
+    parts = []
+    last_section: object = object()  # sentinel, never equals a real section_index
+    for orig, dest, dep, ret, url, deals, max_price, section_index in all_results:
+        if section_index != last_section:
+            if section_index is not None:
+                parts.append(_render_section_banner(dest, max_price))
+            last_section = section_index
+        parts.append(_render_route_section(orig, dest, dep, ret, url, deals, max_price))
+    sections = "".join(parts)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -409,7 +479,7 @@ def build_combined_html(all_results: list[tuple]) -> str:
 </head>
 <body style="margin:0;padding:8px;background:#f0f4f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1a202c;">
   <div style="background:#fff;border-radius:12px;max-width:640px;margin:0 auto;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">
-    <div style="background:linear-gradient(135deg,#005b99 0%,#0080cc 100%);color:#fff;padding:16px 20px;">
+    <div style="background-color:#005b99;background:linear-gradient(135deg,#005b99 0%,#0080cc 100%);color:#fff;padding:16px 20px;">
       <div style="font-size:1.2rem;font-weight:700;">Top Flight Deals</div>
       <div style="font-size:.82rem;opacity:.8;margin-top:4px;">{subtitle}</div>
       <div style="font-size:.72rem;opacity:.6;margin-top:6px;">Generated {generated}</div>
@@ -462,6 +532,8 @@ async def run_search(
     debug: bool = False,
     top_n: int = 5,
     excluded_carriers: set[str] = frozenset(),
+    max_price: float | None = None,
+    section_index: int | None = None,
 ) -> tuple | None:
     print(f"\n[{index}/{total}] {url}")
     route = parse_route(url)
@@ -492,7 +564,7 @@ async def run_search(
         json.dump(deals, f, indent=2)
     print(f"JSON saved to {json_path}")
 
-    return (orig, dest, dep, ret, url, deals)
+    return (orig, dest, dep, ret, url, deals, max_price, section_index)
 
 
 async def main():
@@ -504,7 +576,11 @@ async def main():
     parser.add_argument("--filters-file", default="carriers_filter.txt", help="Text file with one carrier name per line to exclude from results (default: carriers_filter.txt, if present)")
     args = parser.parse_args()
 
-    urls = parse_input_file(args.input_file)
+    try:
+        urls = parse_input_file(args.input_file)
+    except InvalidDataError as e:
+        print(f"Invalid input file: {e}")
+        sys.exit(1)
     if not urls:
         print("No valid URLs found in input file.")
         sys.exit(1)
@@ -517,12 +593,14 @@ async def main():
         print(f"Excluding {len(excluded_carriers)} carrier(s) from {args.filters_file}")
 
     all_results = []
-    for i, url in enumerate(urls, 1):
+    for i, (url, dest, max_price, section_index) in enumerate(urls, 1):
         result = await run_search(
             url, i, len(urls),
             debug=args.debug and i == 1,
             top_n=args.top_n,
             excluded_carriers=excluded_carriers,
+            max_price=max_price,
+            section_index=section_index,
         )
         if result:
             all_results.append(result)

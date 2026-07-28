@@ -1,7 +1,12 @@
 # One Momondo URL per line
+## KIX,1300
 https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-15/2027-01-25?sort=price_a
 https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-15/2027-01-26?sort=price_a
 https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-16/2027-01-25?sort=price_a
 https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-16/2027-01-26?sort=price_a
 https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-17/2027-01-25?sort=price_a
 https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-17/2027-01-26?sort=price_a
+## HIJ,1400
+https://www.momondo.com.au/flight-search/SYD-HIJ/2027-01-16/2027-01-26?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-HIJ/2027-01-17/2027-01-25?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-HIJ/2027-01-17/2027-01-26?sort=price_a
