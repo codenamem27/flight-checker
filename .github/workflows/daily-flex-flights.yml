@@ -1,0 +1,47 @@
+name: Daily Flex Flight Deals
+
+on:
+  schedule:
+    - cron: '50 8 * * *'  # 18:50 AEST (UTC+10); shifts to 19:50 during AEDT (UTC+11, Oct–Apr). 20 min after daily-flights.yml.
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.61.0-jammy
+
+    steps:
+      - uses: actions/checkout@v6.1.0
+
+      - name: Install dependencies
+        run: pip install crawl4ai beautifulsoup4 "playwright==1.61.0"
+
+      - name: Scrape flexible-date grids and emit best-date searches
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+        run: python momondo_flexible.py searches.flex.txt --emit-searches searches.flex.generated.txt
+
+      - name: Scrape cheapest flights for those dates and email report
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+          TOP_N_RESULTS: ${{ vars.TOP_N_RESULTS }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python momondo_flights.py searches.flex.generated.txt
+
+      - name: Upload report artifacts
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: flex-flight-deals-${{ github.run_id }}
+          path: |
+            flight_flex_deals_*.json
+            flight_deals_*.json
+            flight_deals_combined.html
+            searches.flex.generated.txt
+          retention-days: 7
