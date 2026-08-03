@@ -571,7 +571,7 @@ async def main():
     parser = argparse.ArgumentParser(description="Scrape Momondo flight deals.")
     parser.add_argument("input_file", help="Text file with one Momondo URL per line")
     parser.add_argument("--email-to", metavar="ADDRESS", default=os.environ.get("EMAIL_TO"), help="Send combined report to this address (or set EMAIL_TO in .env)")
-    parser.add_argument("--top-n", type=int, default=int(os.environ.get("TOP_N_RESULTS", 5)), help="Number of top deals to show per route (or set TOP_N_RESULTS env var)")
+    parser.add_argument("--top-n", type=int, default=int(os.environ.get("TOP_N_RESULTS", 2)), help="Number of top deals to show per route (or set TOP_N_RESULTS env var)")
     parser.add_argument("--debug", action="store_true", help="Save raw markdown from first URL to debug_markdown.md")
     parser.add_argument("--filters-file", default="carriers_filter.txt", help="Text file with one carrier name per line to exclude from results (default: carriers_filter.txt, if present)")
     args = parser.parse_args()
