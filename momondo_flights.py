@@ -62,6 +62,11 @@ class InvalidDataError(Exception):
 
 HEADER_RE = re.compile(r"^##\s*([A-Za-z]{3})\s*,\s*(\d+(?:\.\d+)?)\s*$")
 
+# Sentinel emitted by momondo_flexible.py under a `## DEST,MAXPRICE` header when
+# that destination had no eligible flexible dates. Recognised here so the report
+# and email show a "no dates found" note instead of scraping it as a URL.
+NO_DATES_TOKEN = "NO_SUITABLE_DATES"
+
 
 def parse_input_file(path: str) -> list[tuple[str, str | None, float | None, int | None]]:
     entries: list[tuple[str, str | None, float | None, int | None]] = []
@@ -82,6 +87,10 @@ def parse_input_file(path: str) -> list[tuple[str, str | None, float | None, int
                 current_section = (current_section + 1) if current_section is not None else 0
                 continue
             if line.startswith("#"):
+                continue
+            if line == NO_DATES_TOKEN:
+                # Flex "no eligible dates" marker; carried through, not scraped.
+                entries.append((line, current_dest, current_max_price, current_section))
                 continue
             if not line.startswith("http"):
                 print(f"Line {lineno}: doesn't look like a URL, skipping: {line!r}")
@@ -456,6 +465,13 @@ def _render_route_section(
   </div>"""
 
 
+def _render_no_dates_message(dest: str, max_price: float | None) -> str:
+    return f"""
+  <div style="padding:14px 16px;border-top:3px solid #e2e8f0;background:#fffaf0;color:#975a16;font-size:.85rem;line-height:1.5;">
+    🔍 No suitable dates found for <strong>{dest}</strong> within the flexible search window — nothing to book right now.
+  </div>"""
+
+
 def build_combined_html(all_results: list[tuple]) -> str:
     generated = datetime.now().strftime("%d %b %Y, %H:%M")
     n = len(all_results)
@@ -468,7 +484,10 @@ def build_combined_html(all_results: list[tuple]) -> str:
             if section_index is not None:
                 parts.append(_render_section_banner(dest, max_price))
             last_section = section_index
-        parts.append(_render_route_section(orig, dest, dep, ret, url, deals, max_price))
+        if deals is None:
+            parts.append(_render_no_dates_message(dest, max_price))
+        else:
+            parts.append(_render_route_section(orig, dest, dep, ret, url, deals, max_price))
     sections = "".join(parts)
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -594,6 +613,10 @@ async def main():
 
     all_results = []
     for i, (url, dest, max_price, section_index) in enumerate(urls, 1):
+        if url == NO_DATES_TOKEN:
+            print(f"\n[{i}/{len(urls)}] {dest}: flex search found no suitable dates — adding note.")
+            all_results.append((None, dest, None, None, None, None, max_price, section_index))
+            continue
         result = await run_search(
             url, i, len(urls),
             debug=args.debug and i == 1,
