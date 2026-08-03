@@ -1,0 +1,11 @@
+# PROD input for momondo_flexible.py (used by cron). Edit routes/dates here.
+# Header format: ## DEST,MINDAYS,MAXPRICE
+#   DEST     3-letter destination; every URL below must be a search to it.
+#   MINDAYS  minimum days between depart and return (return - depart >= MINDAYS).
+#   MAXPRICE informational cap; top deals still shown but flagged within_cap.
+# One flexible-search URL per line; flexible windows via -flexible-Ndays on each date.
+
+## KIX,9,1300
+https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-15-flexible-2days/2027-01-24-flexible-2days
+
+
