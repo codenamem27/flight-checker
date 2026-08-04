@@ -5,11 +5,21 @@ on:
     - cron: '50 8 * * *'  # 18:50 AEST (UTC+10); shifts to 19:50 during AEDT (UTC+11, Oct–Apr). 20 min after daily-flights.yml.
   workflow_dispatch:
 
+# Needed for the GitHub Pages deploy (screenshots hosting).
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright/python:v1.61.0-jammy
+    # Ties this job to the Pages environment so deploy-pages can publish.
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v6.1.0
@@ -22,6 +32,29 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
         run: python momondo_flexible.py searches.flex.txt --emit-searches searches.flex.generated.txt
 
+      # Stage this run's screenshots under stable names + an index.html. Each
+      # deploy replaces the whole site, so old screenshots drop off automatically.
+      - name: Stage screenshots for GitHub Pages
+        run: python publish_screenshots.py --source . --out _site
+
+      - name: Setup Pages
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        continue-on-error: true
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      # deploy.outputs.page_url is the hosting base URL passed to the email step.
+      # continue-on-error so a Pages hiccup degrades to attachments-only email.
+      - name: Deploy to GitHub Pages
+        id: deploy
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
       - name: Scrape cheapest flights for those dates and email report
         env:
           PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
@@ -32,6 +65,8 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          # When the deploy succeeded, embed grids inline; otherwise empty -> attachments only.
+          SCREENSHOTS_BASE_URL: ${{ steps.deploy.outputs.page_url }}
         run: python momondo_flights.py searches.flex.generated.txt
 
       - name: Upload report artifacts
@@ -43,5 +78,6 @@ jobs:
             flight_flex_deals_*.json
             flight_deals_*.json
             flight_deals_combined.html
+            flight_flex_grid_*.png
             searches.flex.generated.txt
           retention-days: 7

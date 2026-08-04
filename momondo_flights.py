@@ -25,6 +25,10 @@ Email environment variables:
     SMTP_USER  sender address / login
     SMTP_PASS  password or app password
     EMAIL_FROM (default: SMTP_USER)
+    SCREENSHOTS_BASE_URL  base URL where flex-grid screenshots are hosted (e.g. a
+             GitHub Pages site). When set, each section shows its grid inline via
+             an <img> pointing at {BASE}/screenshots/{stable-name}.png. Unset =
+             no inline images (screenshots are still attached).
 
 Requires:
     pip install crawl4ai beautifulsoup4
@@ -39,6 +43,7 @@ import re
 import smtplib
 import sys
 from datetime import datetime
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -472,7 +477,18 @@ def _render_no_dates_message(dest: str, max_price: float | None) -> str:
   </div>"""
 
 
-def build_combined_html(all_results: list[tuple]) -> str:
+def _render_section_image(url: str, dest: str) -> str:
+    return f"""
+  <div style="padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0;">
+    <a href="{url}" target="_blank">
+      <img src="{url}" alt="Flexible-dates price grid for {dest}" width="100%"
+           style="display:block;width:100%;max-width:1024px;height:auto;border:1px solid #e2e8f0;border-radius:8px;">
+    </a>
+  </div>"""
+
+
+def build_combined_html(all_results: list[tuple], section_images: dict[str, list[str]] = None) -> str:
+    section_images = section_images or {}
     generated = datetime.now().strftime("%d %b %Y, %H:%M")
     n = len(all_results)
     subtitle = f"{n} route{'s' if n != 1 else ''} · Sorted by price · Scraped from Momondo"
@@ -483,6 +499,8 @@ def build_combined_html(all_results: list[tuple]) -> str:
         if section_index != last_section:
             if section_index is not None:
                 parts.append(_render_section_banner(dest, max_price))
+                for img_url in section_images.get(dest, []):
+                    parts.append(_render_section_image(img_url, dest))
             last_section = section_index
         if deals is None:
             parts.append(_render_no_dates_message(dest, max_price))
@@ -514,7 +532,71 @@ def build_combined_html(all_results: list[tuple]) -> str:
 # Email
 # ---------------------------------------------------------------------------
 
-def send_email(html: str, subject: str, to_addr: str) -> None:
+# Flex-grid screenshot filename, as written by momondo_flexible.py:
+#   flight_flex_grid_{ORIG}-{DEST}_{dep}_{ret}_flexible[_{YYYYMMDD_HHMMSS}].png
+# The trailing timestamp is optional (older files predate it).
+SCREENSHOT_RE = re.compile(
+    r"^flight_flex_grid_([A-Z]{3}-[A-Z]{3})_(.+?)(_\d{8}_\d{6})?\.png$"
+)
+
+
+def select_screenshots(directory: Path, routes: set[str]) -> list[Path]:
+    """Pick which flex-grid screenshots to attach.
+
+    Keeps only files whose route (ORIG-DEST) belongs to this run, and — since
+    timestamped runs accumulate in the directory — collapses each grid to its
+    newest file (latest timestamp, falling back to latest mtime). This avoids
+    attaching stale screenshots from earlier runs or other destinations.
+    """
+    best: dict[tuple[str, str], tuple[tuple[str, float], Path]] = {}
+    for path in directory.glob("flight_flex_grid_*.png"):
+        m = SCREENSHOT_RE.match(path.name)
+        if not m:
+            continue
+        route, grid, ts = m.group(1), m.group(2), (m.group(3) or "").lstrip("_")
+        if routes and route not in routes:
+            continue
+        key = (route, grid)
+        rank = (ts, path.stat().st_mtime)
+        if key not in best or rank > best[key][0]:
+            best[key] = (rank, path)
+    return sorted(v[1] for v in best.values())
+
+
+# Trailing "_YYYYMMDD_HHMMSS" before ".png", stripped for stable hosting URLs.
+_TS_SUFFIX_RE = re.compile(r"_\d{8}_\d{6}(?=\.png$)")
+
+
+def stable_screenshot_name(path: Path) -> str:
+    """Timestamp-free filename, so a grid always maps to the same hosting URL
+    (e.g. flight_flex_grid_SYD-KIX_2027-01-15_2027-01-24_flexible.png). Used both
+    when publishing to GitHub Pages and when building the inline <img> URLs."""
+    return _TS_SUFFIX_RE.sub("", path.name)
+
+
+def build_section_images(directory: Path, routes: set[str], base_url: str) -> dict[str, list[str]]:
+    """Map each destination to the hosted URL(s) of its flex-grid screenshot(s).
+
+    Uses select_screenshots() (newest-per-grid, this run's routes) and points at
+    {base_url}/screenshots/{stable-name}. Returns {} when base_url is empty."""
+    if not base_url:
+        return {}
+    base = base_url.rstrip("/")
+    images: dict[str, list[str]] = {}
+    for path in select_screenshots(directory, routes):
+        m = SCREENSHOT_RE.match(path.name)
+        if not m:
+            continue
+        dest = m.group(1).split("-")[1]
+        images.setdefault(dest, []).append(
+            f"{base}/screenshots/{stable_screenshot_name(path)}"
+        )
+    return images
+
+
+def send_email(
+    html: str, subject: str, to_addr: str, attachments: list[Path] = None
+) -> None:
     host      = os.environ.get("SMTP_HOST", "smtp.gmail.com")
     port      = int(os.environ.get("SMTP_PORT", "587"))
     user      = os.environ.get("SMTP_USER", "")
@@ -525,11 +607,25 @@ def send_email(html: str, subject: str, to_addr: str) -> None:
         print("Email skipped: set SMTP_USER and SMTP_PASS environment variables to enable.")
         return
 
-    msg = MIMEMultipart("alternative")
+    # "mixed" so the HTML body and any image attachments coexist; the HTML lives
+    # in an "alternative" subpart (room for a future plain-text version).
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"]    = from_addr
     msg["To"]      = to_addr
-    msg.attach(MIMEText(html, "html"))
+    body = MIMEMultipart("alternative")
+    body.attach(MIMEText(html, "html"))
+    msg.attach(body)
+
+    for path in attachments or []:
+        try:
+            img = MIMEImage(path.read_bytes(), _subtype="png")
+        except (OSError, ValueError) as e:
+            print(f"Skipping attachment {path.name}: {e}")
+            continue
+        img.add_header("Content-Disposition", "attachment", filename=path.name)
+        msg.attach(img)
+        print(f"Attached screenshot {path.name}")
 
     print(f"Sending email to {to_addr} via {host}:{port}…")
     with smtplib.SMTP(host, port) as smtp:
@@ -593,6 +689,7 @@ async def main():
     parser.add_argument("--top-n", type=int, default=int(os.environ.get("TOP_N_RESULTS", 2)), help="Number of top deals to show per route (or set TOP_N_RESULTS env var)")
     parser.add_argument("--debug", action="store_true", help="Save raw markdown from first URL to debug_markdown.md")
     parser.add_argument("--filters-file", default="carriers_filter.txt", help="Text file with one carrier name per line to exclude from results (default: carriers_filter.txt, if present)")
+    parser.add_argument("--screenshots-base-url", default=os.environ.get("SCREENSHOTS_BASE_URL", ""), help="Base URL where flex-grid screenshots are hosted; when set, each section shows its grid inline (or set SCREENSHOTS_BASE_URL in .env)")
     args = parser.parse_args()
 
     try:
@@ -634,7 +731,18 @@ async def main():
         print("No results to report.")
         return
 
-    html = build_combined_html(all_results)
+    # Flex-grid screenshots (from momondo_flexible.py) live next to the searches
+    # file this run consumes; select the newest per grid for this run's routes.
+    input_dir = Path(args.input_file).parent
+    routes = {f"{orig}-{dest}" for orig, dest, *_ in all_results if orig}
+    screenshots = select_screenshots(input_dir, routes)
+
+    # When a hosting base URL is set, embed each grid inline under its section.
+    section_images = build_section_images(input_dir, routes, args.screenshots_base_url)
+    if section_images:
+        print(f"Embedding inline grid image(s) for: {', '.join(section_images)}")
+
+    html = build_combined_html(all_results, section_images)
     combined_path = "flight_deals_combined.html"
     Path(combined_path).write_text(html, encoding="utf-8")
     print(f"\nCombined report saved to {combined_path}")
@@ -642,7 +750,9 @@ async def main():
     subject = f"Flight Deals – {dests}"
 
     if args.email_to:
-        send_email(html, subject, args.email_to)
+        if screenshots:
+            print(f"Found {len(screenshots)} flex-grid screenshot(s) to attach.")
+        send_email(html, subject, args.email_to, attachments=screenshots)
 
 
 if __name__ == "__main__":

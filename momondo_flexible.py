@@ -33,6 +33,7 @@ Requires:
 
 import argparse
 import asyncio
+import base64
 import json
 import re
 import sys
@@ -136,12 +137,35 @@ def _yyyymmdd_to_date(s: str) -> date:
     return date(int(s[:4]), int(s[4:6]), int(s[6:8]))
 
 
+def _save_top_half(png_bytes: bytes, path: str) -> None:
+    """Save the band of a PNG where the flexible-dates grid sits: from 10% down
+    to 50% of the height. The top 10% (nav bar / price charts above the grid) and
+    the results list below are dropped. Falls back to the full image if Pillow
+    isn't available."""
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+    except ImportError:
+        Path(path).write_bytes(png_bytes)
+        return
+    img = Image.open(BytesIO(png_bytes))
+    w, h = img.size
+    img.crop((0, int(h * 0.10), w, h // 2)).save(path)
+
+
 # ---------------------------------------------------------------------------
 # Scraping
 # ---------------------------------------------------------------------------
 
-async def scrape_flex_grid(url: str, debug: bool = False) -> str | None:
-    """Return the raw HTML of the page (containing the flexible-dates grid)."""
+async def scrape_flex_grid(
+    url: str, debug: bool = False, screenshot_path: str | None = None
+) -> str | None:
+    """Return the raw HTML of the page (containing the flexible-dates grid).
+
+    When screenshot_path is given, a full-page PNG of the rendered grid is
+    written there.
+    """
     browser_cfg = BrowserConfig(
         headless=True,
         user_agent=(
@@ -149,6 +173,12 @@ async def scrape_flex_grid(url: str, debug: bool = False) -> str | None:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/125.0.0.0 Safari/537.36"
         ),
+        # momondo results live in an inner scroll container, so crawl4ai's
+        # full-page screenshot heuristic collapses to the viewport. Render into
+        # a tall viewport instead so the capture reaches the flexible-dates grid
+        # that sits below the fold.
+        viewport_width=1280,
+        viewport_height=2600,
         extra_args=["--disable-blink-features=AutomationControlled"],
     )
     run_cfg = CrawlerRunConfig(
@@ -157,6 +187,13 @@ async def scrape_flex_grid(url: str, debug: bool = False) -> str | None:
         delay_before_return_html=30.0,
         simulate_user=True,
         magic=True,
+        screenshot=True,
+        # js_code runs after simulate_user/magic auto-scroll and right before
+        # the screenshot, so scroll back to the top here to keep the flexible-
+        # dates grid (top of the page) fully in frame. screenshot_wait_for lets
+        # the scroll settle before the capture.
+        js_code=["window.scrollTo(0, 0);"],
+        screenshot_wait_for=0.5,
     )
 
     print(f"Crawling: {url}\n(This may take 30–60 seconds…)\n")
@@ -171,6 +208,13 @@ async def scrape_flex_grid(url: str, debug: bool = False) -> str | None:
         debug_path = "debug_flex.html"
         Path(debug_path).write_text(result.html or "", encoding="utf-8")
         print(f"Raw HTML saved to {debug_path}")
+
+    if screenshot_path:
+        if result.screenshot:
+            _save_top_half(base64.b64decode(result.screenshot), screenshot_path)
+            print(f"Screenshot saved to {screenshot_path}")
+        else:
+            print("No screenshot captured for this page.")
 
     return result.html
 
@@ -283,6 +327,7 @@ async def run_search(
     max_price: float,
     top_n: int,
     debug: bool = False,
+    output_dir: Path = Path("."),
 ) -> dict | None:
     print(f"\n[{index}/{total}] {url}")
     route = parse_route(url)
@@ -291,7 +336,10 @@ async def run_search(
         return None
     orig, dest, dep, ret = route
 
-    html = await scrape_flex_grid(url, debug=debug)
+    label = f"{orig}-{dest}_{dep}_{ret}_flexible"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    screenshot_path = str(output_dir / f"flight_flex_grid_{label}_{ts}.png")
+    html = await scrape_flex_grid(url, debug=debug, screenshot_path=screenshot_path)
     if not html:
         return None
 
@@ -320,7 +368,6 @@ async def run_search(
         )
     print()
 
-    label = f"{orig}-{dest}_{dep}_{ret}_flexible"
     payload = {
         "route": f"{orig}-{dest}",
         "origin": orig,
@@ -370,10 +417,16 @@ async def main() -> None:
     total = len(entries)
     print(f"Loaded {total} URL(s) from {args.input}.")
 
+    # Screenshots go in the same directory as the emitted searches file (the
+    # build_searches_file() target); without --emit-searches, alongside the
+    # per-route JSON files in the CWD.
+    output_dir = Path(args.emit_searches).parent if args.emit_searches else Path(".")
+
     results = []
     for i, (url, _dest, min_days, max_price) in enumerate(entries, 1):
         res = await run_search(
-            url, i, total, min_days=min_days, max_price=max_price, top_n=args.top, debug=args.debug
+            url, i, total, min_days=min_days, max_price=max_price, top_n=args.top,
+            debug=args.debug, output_dir=output_dir,
         )
         if res:
             results.append(res)
