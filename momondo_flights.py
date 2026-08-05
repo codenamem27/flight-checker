@@ -546,8 +546,50 @@ def select_screenshots(directory: Path, routes: set[str]) -> list[Path]:
     return sorted(v[1] for v in best.values())
 
 
+def ordered_named_screenshots(
+    directory: Path, all_results: list[tuple]
+) -> list[tuple[str, Path]]:
+    """Return [(attachment_name, path)] for this run's flex-grid screenshots,
+    ordered to follow the report's sections and renamed to match each section's
+    header.
+
+    Each attachment is named ``{NN}_{DEST}.png`` where NN is the 1-based section
+    position (among sections that have a screenshot) and DEST is the section
+    header's destination; a destination with more than one grid gets a ``_{k}``
+    suffix. The numeric prefix keeps mail clients that sort attachments
+    alphabetically in the same order as the report's sections.
+    """
+    # Destinations in the order their sections appear in the report.
+    dest_order: list[str] = []
+    for _orig, dest, *_ in all_results:
+        if dest and dest not in dest_order:
+            dest_order.append(dest)
+
+    routes = {f"{orig}-{dest}" for orig, dest, *_ in all_results if orig}
+    by_dest: dict[str, list[Path]] = {}
+    for path in select_screenshots(directory, routes):
+        m = SCREENSHOT_RE.match(path.name)
+        if not m:
+            continue
+        dest = m.group(1).split("-")[1]
+        by_dest.setdefault(dest, []).append(path)
+
+    named: list[tuple[str, Path]] = []
+    seq = 0
+    for dest in dest_order:
+        shots = sorted(by_dest.get(dest, []))
+        if not shots:
+            continue
+        seq += 1
+        for k, path in enumerate(shots, 1):
+            suffix = f"_{k}" if len(shots) > 1 else ""
+            named.append((f"{seq:02d}_{dest}{suffix}.png", path))
+    return named
+
+
 def send_email(
-    html: str, subject: str, to_addr: str, attachments: list[Path] = None
+    html: str, subject: str, to_addr: str,
+    attachments: list[tuple[str, Path]] = None,
 ) -> None:
     host      = os.environ.get("SMTP_HOST", "smtp.gmail.com")
     port      = int(os.environ.get("SMTP_PORT", "587"))
@@ -569,15 +611,15 @@ def send_email(
     body.attach(MIMEText(html, "html"))
     msg.attach(body)
 
-    for path in attachments or []:
+    for name, path in attachments or []:
         try:
             img = MIMEImage(path.read_bytes(), _subtype="png")
         except (OSError, ValueError) as e:
-            print(f"Skipping attachment {path.name}: {e}")
+            print(f"Skipping attachment {name}: {e}")
             continue
-        img.add_header("Content-Disposition", "attachment", filename=path.name)
+        img.add_header("Content-Disposition", "attachment", filename=name)
         msg.attach(img)
-        print(f"Attached screenshot {path.name}")
+        print(f"Attached screenshot {name} (from {path.name})")
 
     print(f"Sending email to {to_addr} via {host}:{port}…")
     with smtplib.SMTP(host, port) as smtp:
@@ -691,10 +733,9 @@ async def main():
 
     if args.email_to:
         # Flex-grid screenshots (from momondo_flexible.py) land next to the
-        # searches file this run consumes; attach the newest one per grid for
-        # the routes in this run.
-        routes = {f"{orig}-{dest}" for orig, dest, *_ in all_results if orig}
-        screenshots = select_screenshots(Path(args.input_file).parent, routes)
+        # searches file this run consumes; attach them in the report's section
+        # order, renamed to match each section header.
+        screenshots = ordered_named_screenshots(Path(args.input_file).parent, all_results)
         if screenshots:
             print(f"Found {len(screenshots)} flex-grid screenshot(s) to attach.")
         send_email(html, subject, args.email_to, attachments=screenshots)
