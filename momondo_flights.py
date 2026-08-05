@@ -25,10 +25,6 @@ Email environment variables:
     SMTP_USER  sender address / login
     SMTP_PASS  password or app password
     EMAIL_FROM (default: SMTP_USER)
-    SCREENSHOTS_BASE_URL  base URL where flex-grid screenshots are hosted (e.g. a
-             GitHub Pages site). When set, each section shows its grid inline via
-             an <img> pointing at {BASE}/screenshots/{stable-name}.png. Unset =
-             no inline images (screenshots are still attached).
 
 Requires:
     pip install crawl4ai beautifulsoup4
@@ -477,18 +473,7 @@ def _render_no_dates_message(dest: str, max_price: float | None) -> str:
   </div>"""
 
 
-def _render_section_image(url: str, dest: str) -> str:
-    return f"""
-  <div style="padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0;">
-    <a href="{url}" target="_blank">
-      <img src="{url}" alt="Flexible-dates price grid for {dest}" width="100%"
-           style="display:block;width:100%;max-width:1024px;height:auto;border:1px solid #e2e8f0;border-radius:8px;">
-    </a>
-  </div>"""
-
-
-def build_combined_html(all_results: list[tuple], section_images: dict[str, list[str]] = None) -> str:
-    section_images = section_images or {}
+def build_combined_html(all_results: list[tuple]) -> str:
     generated = datetime.now().strftime("%d %b %Y, %H:%M")
     n = len(all_results)
     subtitle = f"{n} route{'s' if n != 1 else ''} · Sorted by price · Scraped from Momondo"
@@ -499,8 +484,6 @@ def build_combined_html(all_results: list[tuple], section_images: dict[str, list
         if section_index != last_section:
             if section_index is not None:
                 parts.append(_render_section_banner(dest, max_price))
-                for img_url in section_images.get(dest, []):
-                    parts.append(_render_section_image(img_url, dest))
             last_section = section_index
         if deals is None:
             parts.append(_render_no_dates_message(dest, max_price))
@@ -561,37 +544,6 @@ def select_screenshots(directory: Path, routes: set[str]) -> list[Path]:
         if key not in best or rank > best[key][0]:
             best[key] = (rank, path)
     return sorted(v[1] for v in best.values())
-
-
-# Trailing "_YYYYMMDD_HHMMSS" before ".png", stripped for stable hosting URLs.
-_TS_SUFFIX_RE = re.compile(r"_\d{8}_\d{6}(?=\.png$)")
-
-
-def stable_screenshot_name(path: Path) -> str:
-    """Timestamp-free filename, so a grid always maps to the same hosting URL
-    (e.g. flight_flex_grid_SYD-KIX_2027-01-15_2027-01-24_flexible.png). Used both
-    when publishing to GitHub Pages and when building the inline <img> URLs."""
-    return _TS_SUFFIX_RE.sub("", path.name)
-
-
-def build_section_images(directory: Path, routes: set[str], base_url: str) -> dict[str, list[str]]:
-    """Map each destination to the hosted URL(s) of its flex-grid screenshot(s).
-
-    Uses select_screenshots() (newest-per-grid, this run's routes) and points at
-    {base_url}/screenshots/{stable-name}. Returns {} when base_url is empty."""
-    if not base_url:
-        return {}
-    base = base_url.rstrip("/")
-    images: dict[str, list[str]] = {}
-    for path in select_screenshots(directory, routes):
-        m = SCREENSHOT_RE.match(path.name)
-        if not m:
-            continue
-        dest = m.group(1).split("-")[1]
-        images.setdefault(dest, []).append(
-            f"{base}/screenshots/{stable_screenshot_name(path)}"
-        )
-    return images
 
 
 def send_email(
@@ -689,7 +641,6 @@ async def main():
     parser.add_argument("--top-n", type=int, default=int(os.environ.get("TOP_N_RESULTS", 2)), help="Number of top deals to show per route (or set TOP_N_RESULTS env var)")
     parser.add_argument("--debug", action="store_true", help="Save raw markdown from first URL to debug_markdown.md")
     parser.add_argument("--filters-file", default="carriers_filter.txt", help="Text file with one carrier name per line to exclude from results (default: carriers_filter.txt, if present)")
-    parser.add_argument("--screenshots-base-url", default=os.environ.get("SCREENSHOTS_BASE_URL", ""), help="Base URL where flex-grid screenshots are hosted; when set, each section shows its grid inline (or set SCREENSHOTS_BASE_URL in .env)")
     args = parser.parse_args()
 
     try:
@@ -731,18 +682,7 @@ async def main():
         print("No results to report.")
         return
 
-    # Flex-grid screenshots (from momondo_flexible.py) live next to the searches
-    # file this run consumes; select the newest per grid for this run's routes.
-    input_dir = Path(args.input_file).parent
-    routes = {f"{orig}-{dest}" for orig, dest, *_ in all_results if orig}
-    screenshots = select_screenshots(input_dir, routes)
-
-    # When a hosting base URL is set, embed each grid inline under its section.
-    section_images = build_section_images(input_dir, routes, args.screenshots_base_url)
-    if section_images:
-        print(f"Embedding inline grid image(s) for: {', '.join(section_images)}")
-
-    html = build_combined_html(all_results, section_images)
+    html = build_combined_html(all_results)
     combined_path = "flight_deals_combined.html"
     Path(combined_path).write_text(html, encoding="utf-8")
     print(f"\nCombined report saved to {combined_path}")
@@ -750,6 +690,11 @@ async def main():
     subject = f"Flight Deals – {dests}"
 
     if args.email_to:
+        # Flex-grid screenshots (from momondo_flexible.py) land next to the
+        # searches file this run consumes; attach the newest one per grid for
+        # the routes in this run.
+        routes = {f"{orig}-{dest}" for orig, dest, *_ in all_results if orig}
+        screenshots = select_screenshots(Path(args.input_file).parent, routes)
         if screenshots:
             print(f"Found {len(screenshots)} flex-grid screenshot(s) to attach.")
         send_email(html, subject, args.email_to, attachments=screenshots)
