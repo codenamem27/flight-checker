@@ -47,8 +47,8 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 # this also parses a plain (non-flexible) URL's dates.
 ROUTE_RE = re.compile(
     r"/flight-search/([A-Z]{3})-([A-Z]{3})/"
-    r"(\d{4}-\d{2}-\d{2})(?:-flexible-\d+days)?/"
-    r"(\d{4}-\d{2}-\d{2})(?:-flexible-\d+days)?"
+    r"(\d{4}-\d{2}-\d{2})(?:-flexible-\d+days?)?/"
+    r"(\d{4}-\d{2}-\d{2})(?:-flexible-\d+days?)?"
 )
 
 # Each flexible-grid cell: <li id="FlexMatrixCell__{RETURN}_{DEPART}"> where the
