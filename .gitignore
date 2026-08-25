@@ -218,4 +218,18 @@ __marimo__/
 .streamlit/secrets.toml
 
 .playwright-mcp
-flight_deals_*
+
+# flight-checker generated artifacts
+flight_deals*
+flight_flex_deals_*.json
+flight_flex_grid_*.png
+momondo_screenshot.png
+mobile_preview*.png
+debug_markdown.md
+debug_flex.html
+*.mhtml
+.DS_Store
+
+# local / temp search inputs (prod searches.txt & searches.flex.txt stay tracked)
+*.local.txt
+searches.temp.txt
