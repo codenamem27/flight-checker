@@ -189,9 +189,16 @@ def _parse_from_markdown(md: str, top_n: int = 5, excluded_carriers: set[str] = 
     LEG_SPLIT   = re.compile(r"^\s{1,4}\d+\.", re.MULTILINE)
     blocks      = SEPARATOR.split(md)
 
-    # Group 1+2: standard linked price [$X,XXX](url)
-    # Group 3:   Mix & Match plain-text price  $X,XXX Mix & Match
-    price_re   = re.compile(r"\[(\$[\d,]+)\]\((https://[^)]+)\)|(\$[\d,]+)\s+Mix\s*&\s*Match")
+    # A price like $1,347 — digit groups are capped at 3 so trailing glued text
+    # (e.g. "$1,3471 stop" in flattened markdown) can't be absorbed into it.
+    PRICE = r"\$\d{1,3}(?:,\d{3})*"
+    # Group 1+2: linked price. Single-traveller links read [$X,XXX](url); a
+    # multi-adult search renders [ $X,XXX / person $Y,YYY total ](url), so allow
+    # leading space and trailing text and capture the first (per-person) price.
+    # Group 3: Mix & Match plain-text price  $X,XXX Mix & Match
+    price_re   = re.compile(
+        rf"\[\s*({PRICE})[^\]]*\]\((https://[^)]+)\)|({PRICE})\s+Mix\s*&\s*Match"
+    )
     time_re    = re.compile(r"(\d{1,2}:\d{2})\s*[–\-]\s*(\d{1,2}:\d{2}(\+\d)?)")
     airline_re = re.compile(r"!\[([^\]]+)\]\(https://content\.r9cdn")
     seen_prices: set[str] = set()
@@ -201,6 +208,11 @@ def _parse_from_markdown(md: str, top_n: int = 5, excluded_carriers: set[str] = 
             break
         price_m = price_re.search(block)
         if not price_m:
+            continue
+        # Skip sponsored/ad placements (e.g. "paid placement" blocks): real
+        # Momondo results carry an airline logo from content.r9cdn, ads do not.
+        # Checked before dedup so an ad's price can't shadow a real same-price deal.
+        if not airline_re.search(block):
             continue
         if price_m.group(1):
             price_val, booking_url = price_m.group(1), price_m.group(2)
@@ -272,15 +284,24 @@ def _parse_from_html(html: str, top_n: int = 5, excluded_carriers: set[str] = fr
     # Stable suffix for price container; 4-char prefix (e.g. "e2GB-") rotates per deploy
     price_container_re = re.compile(r"price-text-container$")
 
+    # Same per-person price shape as the markdown parser (digit groups capped so
+    # glued trailing text can't be absorbed).
+    price_re = re.compile(r"\$\d{1,3}(?:,\d{3})*")
+    time_re  = re.compile(r"(\d{1,2}:\d{2})\s*[→–\-]\s*(\d{1,2}:\d{2}(?:\+\d)?)")
+    dur_re   = re.compile(r"\d+h\s*\d*m?")
+    stop_re  = re.compile(r"non.?stop|direct|(\d+)\s*stops?", re.I)
+
+    def _at(seq, i, default):
+        return seq[i] if i < len(seq) else default
+
     for card in cards:
         if len(deals) >= top_n:
             break
 
         text = card.get_text(" ", strip=True)
-        price_el   = card.find(class_=price_container_re)
-        price_m    = re.search(r"\$[\d,]+", price_el.get_text() if price_el else text)
-        time_m     = re.search(r"(\d{1,2}:\d{2})\s*[→–-]\s*(\d{1,2}:\d{2})", text)
-        duration_m = re.search(r"(\d+h\s*\d*m?)", text)
+        price_el = card.find(class_=price_container_re)
+        # Multi-adult cards read "$X / person $Y total"; take the per-person price.
+        price_m  = price_re.search(price_el.get_text() if price_el else text)
 
         for attr in ("alt", "title", "aria-label"):
             el = card.find(attrs={attr: True})
@@ -293,19 +314,28 @@ def _parse_from_html(html: str, top_n: int = 5, excluded_carriers: set[str] = fr
         if excluded_carriers and any(name in airline.lower() for name in excluded_carriers):
             continue
 
-        stops = "Non-stop" if re.search(r"non.?stop|direct", text, re.I) else (
-            f"{m.group(1)} stop(s)" if (m := re.search(r"(\d+)\s*stop", text, re.I)) else "N/A"
-        )
+        # Cards flatten both legs into one text run; the outbound leg comes first,
+        # the return second. "0" marks non-stop, matching the markdown parser and
+        # what _badge() expects.
+        times = time_re.findall(text)
+        durs  = dur_re.findall(text)
+        stops = ["0" if m.group(1) is None else m.group(1) for m in stop_re.finditer(text)]
+        l1_dep, l1_arr = _at(times, 0, ("N/A", "N/A"))
+        l2_dep, l2_arr = _at(times, 1, ("N/A", "N/A"))
 
         deals.append({
-            "rank":           len(deals) + 1,
-            "airline":        airline,
-            "departure_time": time_m.group(1) if time_m else "N/A",
-            "arrival_time":   time_m.group(2) if time_m else "N/A",
-            "duration":       duration_m.group(1) if duration_m else "N/A",
-            "stops":          stops,
-            "price":          price_m.group(0) if price_m else "N/A",
-            "booking_link":   "",
+            "rank":          len(deals) + 1,
+            "airline":       airline,
+            "leg1_dep":      l1_dep,
+            "leg1_arr":      l1_arr,
+            "leg1_duration": _at(durs, 0, "N/A"),
+            "leg1_stops":    _at(stops, 0, "N/A"),
+            "leg2_dep":      l2_dep,
+            "leg2_arr":      l2_arr,
+            "leg2_duration": _at(durs, 1, "N/A"),
+            "leg2_stops":    _at(stops, 1, "N/A"),
+            "price":         price_m.group(0) if price_m else "N/A",
+            "booking_link":  "",
         })
 
     return deals
@@ -316,6 +346,10 @@ def _parse_from_html(html: str, top_n: int = 5, excluded_carriers: set[str] = fr
 # ---------------------------------------------------------------------------
 
 ROUTE_RE = re.compile(r"/flight-search/([A-Z]{3})-([A-Z]{3})/(\d{4}-\d{2}-\d{2})/(\d{4}-\d{2}-\d{2})")
+
+# Passenger segment appended after the return date, e.g. ".../2027-01-26/3adults".
+# Old single-traveller URLs omit it entirely, so parse_passengers() defaults to 1.
+PAX_RE = re.compile(r"(\d+)adults", re.I)
 
 _CSS = """
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -404,6 +438,17 @@ def parse_route(url: str) -> tuple[str, str, str, str] | None:
     return m.group(1), m.group(2), m.group(3), m.group(4)
 
 
+def parse_passengers(url: str) -> int:
+    """Number of adults encoded in the URL's passenger segment (default 1).
+
+    Momondo appends a segment like `/3adults` after the return date. URLs
+    without it are single-traveller searches, so the default of 1 keeps the
+    older format working unchanged.
+    """
+    m = PAX_RE.search(url)
+    return int(m.group(1)) if m else 1
+
+
 def _badge(stops: str) -> str:
     if stops == "0":
         return '<span style="display:inline-block;background:#c6f6d5;color:#276749;padding:1px 7px;border-radius:999px;font-size:.72em;font-weight:600;">Non-stop</span>'
@@ -425,7 +470,9 @@ def _render_route_section(
 ) -> str:
     dep_fmt = datetime.strptime(dep, "%Y-%m-%d").strftime("%a %-d/%-m")
     ret_fmt = datetime.strptime(ret, "%Y-%m-%d").strftime("%a %-d/%-m")
-    label   = f"{orig} → {dest} &nbsp;|&nbsp; {dep_fmt} – {ret_fmt}"
+    pax     = parse_passengers(url)
+    pax_lbl = f" &nbsp;·&nbsp; {pax} travellers" if pax > 1 else ""
+    label   = f"{orig} → {dest} &nbsp;|&nbsp; {dep_fmt} – {ret_fmt}{pax_lbl}"
 
     cards = ""
     for d in deals:

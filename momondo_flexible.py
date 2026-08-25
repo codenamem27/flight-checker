@@ -51,6 +51,11 @@ ROUTE_RE = re.compile(
     r"(\d{4}-\d{2}-\d{2})(?:-flexible-\d+days?)?"
 )
 
+# Optional passenger segment after the return date, e.g. ".../3adults". Absent
+# on single-traveller searches. Carried through to the emitted handoff URLs so
+# momondo_flights.py scrapes the same number of travellers as the flex search.
+PAX_RE = re.compile(r"/(\d+adults)\b", re.I)
+
 # Each flexible-grid cell: <li id="FlexMatrixCell__{RETURN}_{DEPART}"> where the
 # dates are yyyymmdd. Price text lives in a ".jPY1-inner" descendant; its
 # modifier class (…-inner-best_price / -bad_price / -default) flags the cell.
@@ -77,6 +82,13 @@ def parse_route(url: str) -> tuple[str, str, str, str] | None:
     if not m:
         return None
     return m.group(1), m.group(2), m.group(3), m.group(4)
+
+
+def pax_segment(url: str) -> str:
+    """Return the URL's passenger path segment with a leading slash (e.g.
+    "/3adults"), or "" for a single-traveller URL that has none."""
+    m = PAX_RE.search(url)
+    return f"/{m.group(1)}" if m else ""
 
 
 def parse_input_file(path: str) -> list[tuple[str, str, int, float]]:
@@ -276,7 +288,8 @@ def build_searches_file(results: list[dict], path: str, section_caps: dict[str, 
     (input order), even when that destination produced no eligible dates — in
     that case a single NO_SUITABLE_DATES sentinel line is written instead of
     URLs. Otherwise, results for the same DEST are merged into the one section
-    and one full flight-search URL (with ?sort=price_a) is written per unique
+    and one full flight-search URL (with ?sort=price_a, and the source URL's
+    passenger segment such as /3adults carried through) is written per unique
     depart/return pair (identical URLs, e.g. an overlapping date pair that
     ranked in two flex grids, are emitted only once).
 
@@ -298,10 +311,13 @@ def build_searches_file(results: list[dict], path: str, section_caps: dict[str, 
             orig = r["origin"]
             p = urlparse(r["url"])
             base = f"{p.scheme}://{p.netloc}"
+            # Carry the flex URL's passenger segment (e.g. "/3adults") through so
+            # the detail search runs for the same number of travellers.
+            pax = pax_segment(r["url"])
             for d in r["top_deals"]:
                 url = (
                     f"{base}/flight-search/{orig}-{dest}/"
-                    f"{d['depart_date']}/{d['return_date']}?sort=price_a"
+                    f"{d['depart_date']}/{d['return_date']}{pax}?sort=price_a"
                 )
                 if url in seen:
                     continue
