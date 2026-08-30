@@ -9,4 +9,8 @@
 https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-15-flexible-2days/2027-01-24-flexible-2days/3adults?sort=price_a
 https://www.momondo.com.au/flight-search/SYD-KIX/2027-01-17-flexible-1day/2027-01-26-flexible-1day/3adults?sort=price_a
 
+## GVA,10,2000
+https://www.momondo.com.au/flight-search/SYD-GVA/2027-07-03-flexible-1day/2027-07-17-flexible-1day-before/3adults?sort=price_a
+
+
 
