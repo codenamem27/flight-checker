@@ -14,3 +14,15 @@ https://www.momondo.com.au/flight-search/SYD-GVA/2027-07-03/2027-07-16/3adults?s
 https://www.momondo.com.au/flight-search/SYD-GVA/2027-07-03/2027-07-17/3adults?sort=price_a
 https://www.momondo.com.au/flight-search/SYD-GVA/2027-07-04/2027-07-16/3adults?sort=price_a
 https://www.momondo.com.au/flight-search/SYD-GVA/2027-07-04/2027-07-17/3adults?sort=price_a
+
+## ZRH, 2000
+https://www.momondo.com.au/flight-search/SYD-ZRH/2027-07-03/2027-07-16/3adults?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-ZRH/2027-07-03/2027-07-17/3adults?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-ZRH/2027-07-04/2027-07-16/3adults?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-ZRH/2027-07-04/2027-07-17/3adults?sort=price_a
+
+## MXP, 2000
+https://www.momondo.com.au/flight-search/SYD-MXP/2027-07-03/2027-07-16/3adults?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-MXP/2027-07-03/2027-07-17/3adults?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-MXP/2027-07-04/2027-07-16/3adults?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-MXP/2027-07-04/2027-07-17/3adults?sort=price_a
