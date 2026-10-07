@@ -2,7 +2,7 @@ name: Daily Flight Deals
 
 on:
   schedule:
-    - cron: '30 8 * * *'  # 18:30 AEST (UTC+10); shifts to 19:30 during AEDT (UTC+11, Oct–Apr)
+    - cron: '30 4 * * *'  # 14:30 AEST (UTC+10); shifts to 15:30 during AEDT (UTC+11, Oct–Apr)
   workflow_dispatch:
 
 jobs:
