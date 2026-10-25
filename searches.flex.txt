@@ -14,6 +14,7 @@ https://www.momondo.com.au/flight-search/SYD-GVA/2027-07-03-flexible-1day/2027-0
 
 ## HGH,9,900
 https://www.momondo.com.au/flight-search/SYD-HGH/2027-04-12-flexible-1day/2027-04-22-flexible-2days?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-HGH/2027-03-20-flexible-1day/2027-04-01-flexible-2days?sort=price_a
 
 ## PVG,9,900
 https://www.momondo.com.au/flight-search/SYD-PVG/2027-04-12-flexible-1day/2027-04-22-flexible-2days?sort=price_a
