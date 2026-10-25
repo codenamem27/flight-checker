@@ -12,5 +12,9 @@
 ## GVA,10,2000
 https://www.momondo.com.au/flight-search/SYD-GVA/2027-07-03-flexible-1day/2027-07-17-flexible-1day-before/3adults?sort=price_a
 
+## HGH,9,900
+https://www.momondo.com.au/flight-search/SYD-HGH/2027-04-12-flexible-1day/2027-04-22-flexible-2days?sort=price_a
 
+## PVG,9,900
+https://www.momondo.com.au/flight-search/SYD-PVG/2027-04-12-flexible-1day/2027-04-22-flexible-2days?sort=price_a
 
