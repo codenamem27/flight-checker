@@ -35,6 +35,7 @@ import argparse
 import asyncio
 import base64
 import json
+import os
 import re
 import sys
 from datetime import date, datetime
@@ -42,6 +43,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+
+# Shared Momondo bot-check handling (click-through + retry detection).
+from momondo_flights import (
+    SECURITY_CHECK_RETRIES,
+    _CLICK_SECURITY_CONTINUE_JS,
+    _is_security_check,
+)
 
 # Route + base dates. The "-flexible-Ndays" suffix on each date is optional so
 # this also parses a plain (non-flexible) URL's dates.
@@ -61,6 +69,15 @@ PAX_RE = re.compile(r"/(\d+adults)\b", re.I)
 # modifier class (…-inner-best_price / -bad_price / -default) flags the cell.
 CELL_ID_RE = re.compile(r"^FlexMatrixCell__(\d{8})_(\d{8})$")
 STATUS_RE = re.compile(r"jPY1-mod-inner-(\w+)")
+
+# Current grid markup: <div role="gridcell" id="ffdg_{RETURN}_{DEPART}"> (dates
+# yyyymmdd) with the price in a descendant whose class ends in "-price". The
+# obfuscated class prefixes rotate per deploy, so match only the stable bits.
+# The cell's "-mod-primary" / "-mod-secondary" / "-mod-default" class flags it
+# (cheapest / priciest / other).
+NEW_CELL_ID_RE = re.compile(r"^ffdg_(\d{8})_(\d{8})$")
+NEW_STATUS_RE = re.compile(r"-mod-(primary|secondary|default)\b")
+NEW_STATUS_MAP = {"primary": "best_price", "secondary": "bad_price", "default": "default"}
 
 # Section header: ## DEST,MINDAYS,MAXPRICE  e.g.  ## MXP,9,1400
 HEADER_RE = re.compile(r"^##\s*([A-Za-z]{3})\s*,\s*(\d+)\s*,\s*(\d+(?:\.\d+)?)\s*$")
@@ -180,6 +197,9 @@ async def scrape_flex_grid(
     """
     browser_cfg = BrowserConfig(
         headless=True,
+        # Persist cookies (incl. a cleared security check) across launches/runs.
+        use_persistent_context=True,
+        user_data_dir=os.environ.get("BROWSER_PROFILE_DIR", ".browser_profile"),
         user_agent=(
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -204,16 +224,22 @@ async def scrape_flex_grid(
         # the screenshot, so scroll back to the top here to keep the flexible-
         # dates grid (top of the page) fully in frame. screenshot_wait_for lets
         # the scroll settle before the capture.
-        js_code=["window.scrollTo(0, 0);"],
+        js_code=[_CLICK_SECURITY_CONTINUE_JS, "window.scrollTo(0, 0);"],
         screenshot_wait_for=0.5,
     )
 
     print(f"Crawling: {url}\n(This may take 30–60 seconds…)\n")
-    async with AsyncWebCrawler(config=browser_cfg) as crawler:
-        result = await crawler.arun(url=url, config=run_cfg)
-
-    if not result.success:
-        print(f"Crawl failed: {result.error_message}")
+    for attempt in range(1, SECURITY_CHECK_RETRIES + 1):
+        async with AsyncWebCrawler(config=browser_cfg) as crawler:
+            result = await crawler.arun(url=url, config=run_cfg)
+        if not result.success:
+            print(f"Crawl failed: {result.error_message}")
+            return None
+        if not (_is_security_check(result.markdown) or _is_security_check(result.html)):
+            break
+        print(f"Hit Momondo security check (attempt {attempt}/{SECURITY_CHECK_RETRIES}).")
+    else:
+        print("Security check not cleared; giving up on this URL.")
         return None
 
     if debug:
@@ -241,28 +267,42 @@ def parse_flex_grid(html: str) -> list[dict]:
 
     soup = BeautifulSoup(html, "html.parser")
     cells: list[dict] = []
-    for li in soup.find_all("li", id=CELL_ID_RE):
-        m = CELL_ID_RE.match(li.get("id", ""))
-        ret_date = _yyyymmdd_to_date(m.group(1))
-        dep_date = _yyyymmdd_to_date(m.group(2))
 
-        inner = li.find(class_=re.compile(r"jPY1-inner"))
-        if inner is None:
-            continue  # cell without a rendered price
-        price_str = inner.get_text(strip=True)
+    def _add(ret_s: str, dep_s: str, price_str: str, status: str) -> None:
         price_val = _price_to_float(price_str)
         if price_val is None:
-            continue
-
-        status_m = STATUS_RE.search(" ".join(inner.get("class", [])))
+            return
+        ret_date, dep_date = _yyyymmdd_to_date(ret_s), _yyyymmdd_to_date(dep_s)
         cells.append({
             "depart_date": dep_date.isoformat(),
             "return_date": ret_date.isoformat(),
             "trip_days": (ret_date - dep_date).days,
             "price": price_str,
             "price_value": price_val,
-            "status": status_m.group(1) if status_m else "default",
+            "status": status,
         })
+
+    # Current markup.
+    for el in soup.find_all(id=NEW_CELL_ID_RE):
+        m = NEW_CELL_ID_RE.match(el.get("id", ""))
+        price_el = el.find(class_=re.compile(r"-price$"))
+        if price_el is None:
+            continue  # cell without a rendered price
+        status_m = NEW_STATUS_RE.search(" ".join(el.get("class", [])))
+        status = NEW_STATUS_MAP[status_m.group(1)] if status_m else "default"
+        _add(m.group(1), m.group(2), price_el.get_text(strip=True), status)
+    if cells:
+        return cells
+
+    # Legacy markup (<li id="FlexMatrixCell__…">).
+    for li in soup.find_all("li", id=CELL_ID_RE):
+        m = CELL_ID_RE.match(li.get("id", ""))
+        inner = li.find(class_=re.compile(r"jPY1-inner"))
+        if inner is None:
+            continue
+        status_m = STATUS_RE.search(" ".join(inner.get("class", [])))
+        _add(m.group(1), m.group(2), inner.get_text(strip=True),
+             status_m.group(1) if status_m else "default")
     return cells
 
 

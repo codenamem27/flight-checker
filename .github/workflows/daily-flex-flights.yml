@@ -17,6 +17,13 @@ jobs:
       - name: Install dependencies
         run: pip install crawl4ai beautifulsoup4 "playwright==1.61.0"
 
+      - name: Restore browser profile
+        uses: actions/cache@v4
+        with:
+          path: .browser_profile
+          key: browser-profile-flex-${{ github.run_id }}
+          restore-keys: browser-profile-flex-
+
       - name: Scrape flexible-date grids and emit best-date searches
         env:
           PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
