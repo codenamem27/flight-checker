@@ -133,6 +133,30 @@ def _price_to_float(price: str) -> float | None:
 # Scraping
 # ---------------------------------------------------------------------------
 
+# Momondo sometimes redirects to /security/check ("Please confirm that you are a
+# real momondo user" + a Continue button) instead of serving results. This clicks
+# Continue, polling because the challenge page can render after our script runs.
+_CLICK_SECURITY_CONTINUE_JS = """
+(async () => {
+  const isCheck = () => location.pathname.includes('/security/check');
+  for (let i = 0; i < 20; i++) {
+    if (isCheck()) {
+      const b = [...document.querySelectorAll('button,[role=button],a,input[type=submit]')]
+        .find(e => /^\\s*continue\\s*$/i.test(e.innerText || e.value || ''));
+      if (b) { b.click(); return; }
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+})();
+"""
+SECURITY_CHECK_RETRIES = 3
+
+
+def _is_security_check(md: str | None) -> bool:
+    md = md or ""
+    return "/security/check" in md or "Please confirm that you are a real" in md
+
+
 async def scrape_top_flights(
     url: str,
     debug: bool = False,
@@ -141,6 +165,9 @@ async def scrape_top_flights(
 ) -> list[dict]:
     browser_cfg = BrowserConfig(
         headless=True,
+        # Persist cookies (incl. a cleared security check) across launches/runs.
+        use_persistent_context=True,
+        user_data_dir=os.environ.get("BROWSER_PROFILE_DIR", ".browser_profile"),
         user_agent=(
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -154,14 +181,22 @@ async def scrape_top_flights(
         delay_before_return_html=30.0,
         simulate_user=True,
         magic=True,
+        js_code=[_CLICK_SECURITY_CONTINUE_JS],
     )
 
     print(f"Crawling: {url}\n(This may take 30–60 seconds…)\n")
-    async with AsyncWebCrawler(config=browser_cfg) as crawler:
-        result = await crawler.arun(url=url, config=run_cfg)
-
-    if not result.success:
-        print(f"Crawl failed: {result.error_message}")
+    result = None
+    for attempt in range(1, SECURITY_CHECK_RETRIES + 1):
+        async with AsyncWebCrawler(config=browser_cfg) as crawler:
+            result = await crawler.arun(url=url, config=run_cfg)
+        if not result.success:
+            print(f"Crawl failed: {result.error_message}")
+            return []
+        if not _is_security_check(result.markdown):
+            break
+        print(f"Hit Momondo security check (attempt {attempt}/{SECURITY_CHECK_RETRIES}).")
+    else:
+        print("Security check not cleared; giving up on this URL.")
         return []
 
     print(f"Markdown length: {len(result.markdown or '')}")

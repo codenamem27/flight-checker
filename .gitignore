@@ -233,3 +233,4 @@ debug_flex.html
 # local / temp search inputs (prod searches.txt & searches.flex.txt stay tracked)
 *.local.txt
 searches.temp.txt
+.browser_profile/
