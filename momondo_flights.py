@@ -99,7 +99,7 @@ def parse_input_file(path: str) -> list[tuple[str, str | None, float | None, int
             if current_dest is not None:
                 route = parse_route(line)
                 url_dest = route[1].upper() if route else "?"
-                if route is None or url_dest != current_dest:
+                if route is None or (url_dest != current_dest and not is_multi_city(line)):
                     raise InvalidDataError(
                         f"Line {lineno}: URL destination {url_dest!r} doesn't match "
                         f"section destination {current_dest!r}: {line!r}"
@@ -380,7 +380,14 @@ def _parse_from_html(html: str, top_n: int = 5, excluded_carriers: set[str] = fr
 # HTML report
 # ---------------------------------------------------------------------------
 
-ROUTE_RE = re.compile(r"/flight-search/([A-Z]{3})-([A-Z]{3})/(\d{4}-\d{2}-\d{2})/(\d{4}-\d{2}-\d{2})")
+# Round trip:  /SYD-GVA/2027-07-02/2027-07-16
+# Multi-city:  /SYD-SHA/2027-03-19/HGH-SYD/2027-03-31  (open-jaw; return leg
+#              departs from a different airport, so dest need not match the
+#              section header).
+ROUTE_RE = re.compile(
+    r"/flight-search/([A-Z]{3})-([A-Z]{3})/(\d{4}-\d{2}-\d{2})"
+    r"/(?:(?P<o2>[A-Z]{3})-(?P<d2>[A-Z]{3})/)?(\d{4}-\d{2}-\d{2})"
+)
 
 # Passenger segment appended after the return date, e.g. ".../2027-01-26/3adults".
 # Old single-traveller URLs omit it entirely, so parse_passengers() defaults to 1.
@@ -470,7 +477,12 @@ def parse_route(url: str) -> tuple[str, str, str, str] | None:
     m = ROUTE_RE.search(url)
     if not m:
         return None
-    return m.group(1), m.group(2), m.group(3), m.group(4)
+    return m.group(1), m.group(2), m.group(3), m.group(6)
+
+
+def is_multi_city(url: str) -> bool:
+    m = ROUTE_RE.search(url)
+    return bool(m and m.group("o2"))
 
 
 def parse_passengers(url: str) -> int:
