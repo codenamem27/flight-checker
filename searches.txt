@@ -29,7 +29,7 @@ https://www.momondo.com.au/flight-search/SYD-MXP/2027-07-04/2027-07-16/3adults?s
 https://www.momondo.com.au/flight-search/SYD-MXP/2027-07-04/2027-07-17/3adults?sort=price_a
 
 ## PVG, 2000
-https://www.momondo.com.au/flight-search/SYD-SHA/2027-03-19/HGH-SYD/2027-03-31?sort=price_a
-https://www.momondo.com.au/flight-search/SYD-SHA/2027-03-20/HGH-SYD/2027-03-31?sort=price_a
-https://www.momondo.com.au/flight-search/SYD-SHA/2027-03-20/HGH-SYD/2027-04-01?sort=price_a
-https://www.momondo.com.au/flight-search/SYD-SHA/2027-03-21/HGH-SYD/2027-04-01?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-SHA/2027-03-19/HGH-SYD/2027-03-31/2adults?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-SHA/2027-03-20/HGH-SYD/2027-03-31/2adults?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-SHA/2027-03-20/HGH-SYD/2027-04-01/2adults?sort=price_a
+https://www.momondo.com.au/flight-search/SYD-SHA/2027-03-21/HGH-SYD/2027-04-01/2adults?sort=price_a
